@@ -6,17 +6,10 @@ import { Pressable, View } from 'react-native';
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
 import { deloadOffer, isMissed } from '@/engine/session.ts';
 import type { Explanation } from '@/engine/types.ts';
-import { daysSince, isDeload, localDate, recentWorkouts, track, updateProfile, useData } from '@/lib/data';
+import { daysSince, isDeload, localDate, recentWorkouts, startOfWeek, track, updateProfile, useData } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Card, s, Screen, T } from '@/ui';
 import { Why } from '@/why';
-
-function startOfWeek() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday
-  return d.toISOString();
-}
 
 export default function Home() {
   const { profile, program, refresh } = useData();

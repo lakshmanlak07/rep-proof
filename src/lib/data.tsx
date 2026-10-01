@@ -158,3 +158,11 @@ export function localDate(d = new Date()) {
 }
 export const isDeload = (until: string | null) => !!until && until >= localDate();
 
+
+/** Monday 00:00 local time of the current week, as ISO. */
+export function startOfWeek() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.toISOString();
+}

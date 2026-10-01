@@ -1,56 +1,32 @@
-# Welcome to your Expo app 👋
+# RepProof
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 
-## Get started
+- `src/engine/`: training and nutrition rules, pure TypeScript. Tests: `npm test`.
+- `src/app/`: screens. `src/lib/`: Supabase client and data access.
+- `supabase/schema.sql`: database. `supabase/functions/food/`: USDA food search proxy.
 
-1. Install dependencies
+## Setup (Windows)
 
-   ```bash
-   npm install
+1. Supabase project → SQL Editor → run `supabase/schema.sql`.
+2. Authentication → Sign In / Providers → Email → turn off "Confirm email" (beta).
+3. Copy `.env.example` to `.env`; fill in Project URL and publishable key (Project Settings → API).
+4. Food search: get a free key at https://fdc.nal.usda.gov/api-key-signup, then:
    ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
+   npx supabase login
+   npx supabase link --project-ref <your project ref>
+   npx supabase secrets set FDC_API_KEY=<key>
+   npx supabase functions deploy food
    ```
+5. Run: `npx expo start`, scan the QR code with Expo Go.
 
-In the output, you'll find options to open the app in a
+## Builds
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+- Android tester APK: `npx eas-cli@latest build --profile preview --platform android`
+- Store builds: `npx eas-cli@latest build --profile production --platform all`
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## Before release
 
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- Confirm DOIs for references without one in `src/engine/references.ts` (links appear once a DOI is set).
+- Review disclaimer (`src/lib/pending.ts`), exercise cues (`src/engine/exercises.ts`), nutrition cards (`src/engine/nutrition.ts`).
+- Set `FEEDBACK_EMAIL` in `src/app/settings.tsx`.

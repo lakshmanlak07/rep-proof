@@ -1,17 +1,28 @@
-import { View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Alert, Pressable, View } from 'react-native';
 
 import { NUTRITION_CARDS, targets, type Phase } from '@/engine/nutrition.ts';
 import { track, updateProfile, useData } from '@/lib/data';
-import { Card, Choice, s, Screen, T } from '@/ui';
+import { dayLogs, deleteLog, MEALS, saveMeal, sum, type FoodLog, type Meal } from '@/lib/food';
+import { Button, C, Card, Choice, s, Screen, T } from '@/ui';
 import { Why, WhyBody } from '@/why';
+
+const MEAL_NAMES: Record<Meal, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks' };
 
 export default function Nutrition() {
   const { profile, refresh } = useData();
+  const [logs, setLogs] = useState<FoodLog[]>([]);
+
+  const load = useCallback(() => { dayLogs().then(setLogs).catch(() => {}); }, []);
+  useFocusEffect(load);
+
   if (!profile) return null;
   const t = targets({
     bodyweight: Number(profile.bodyweight), unit: profile.unit, heightCm: Number(profile.height_cm),
     age: new Date().getFullYear() - profile.birth_year, sex: profile.sex, days: profile.days, phase: profile.nutrition_phase,
   });
+  const eaten = sum(logs);
 
   async function setPhase(phase: Phase) {
     await updateProfile(profile!.id, { nutrition_phase: phase });
@@ -19,10 +30,29 @@ export default function Nutrition() {
     await refresh();
   }
 
-  const stat = (label: string, value: string) => (
-    <View style={{ flex: 1, gap: 2 }}>
-      <T muted size="sm">{label}</T>
-      <T size="lg">{value}</T>
+  function remove(l: FoodLog) {
+    Alert.alert('Remove this food?', l.name, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => deleteLog(l.id).then(load) },
+    ]);
+  }
+
+  async function save(meal: Meal, items: FoodLog[]) {
+    const name = `${MEAL_NAMES[meal]}, ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    await saveMeal(name, items);
+    track('meal_saved');
+    Alert.alert('Saved', `"${name}" is in Saved meals when you add food.`);
+  }
+
+  const bar = (label: string, have: number, goal: number, unit: string) => (
+    <View style={{ gap: 4 }}>
+      <View style={[s.row, { justifyContent: 'space-between' }]}>
+        <T muted size="sm">{label}</T>
+        <T size="sm">{Math.round(have)} / {goal} {unit}</T>
+      </View>
+      <View style={{ height: 8, borderRadius: 4, backgroundColor: C.border, overflow: 'hidden' }}>
+        <View style={{ width: `${Math.min(100, (100 * have) / Math.max(1, goal))}%`, height: 8, backgroundColor: have > goal * 1.05 ? '#7DB7FF' : C.accent }} />
+      </View>
     </View>
   );
 
@@ -31,18 +61,37 @@ export default function Nutrition() {
       <T size="xl">Nutrition</T>
       <Card>
         <View style={[s.row, { justifyContent: 'space-between' }]}>
-          <T muted size="sm">DAILY TARGETS</T>
+          <T muted size="sm">TODAY VS TARGET</T>
           <Why e={t.explanations[0]} />
         </View>
-        <View style={s.row}>
-          {stat('Calories', `${t.calories}`)}
-          {stat('Protein', `${t.protein} g`)}
-        </View>
-        <View style={s.row}>
-          {stat('Fat', `${t.fat} g`)}
-          {stat('Carbs', `${t.carbs} g`)}
-        </View>
+        {bar('Calories', eaten.kcal, t.calories, 'kcal')}
+        {bar('Protein', eaten.protein, t.protein, 'g')}
+        {bar('Fat', eaten.fat, t.fat, 'g')}
+        {bar('Carbs', eaten.carbs, t.carbs, 'g')}
       </Card>
+
+      {MEALS.map((meal) => {
+        const items = logs.filter((l) => l.meal === meal);
+        return (
+          <Card key={meal}>
+            <View style={[s.row, { justifyContent: 'space-between' }]}>
+              <T bold>{MEAL_NAMES[meal]}</T>
+              <T muted size="sm">{Math.round(sum(items).kcal)} kcal</T>
+            </View>
+            {items.map((l) => (
+              <Pressable key={l.id} onLongPress={() => remove(l)} accessibilityHint="Long press to remove" style={[s.row, { justifyContent: 'space-between', minHeight: 32 }]}>
+                <T muted style={{ flex: 1 }} size="sm">{l.name} · {l.grams} g</T>
+                <T size="sm">{Math.round(l.kcal)} kcal</T>
+              </Pressable>
+            ))}
+            <View style={s.row}>
+              <Button title="Add food" style={{ flex: 1 }} onPress={() => router.push({ pathname: '/food', params: { meal } })} />
+              {items.length ? <Button kind="ghost" title="Save as meal" onPress={() => save(meal, items)} /> : null}
+            </View>
+          </Card>
+        );
+      })}
+      {logs.length ? <T muted size="sm">Long-press a food to remove it.</T> : null}
 
       <T bold>Phase</T>
       <Choice value={profile.nutrition_phase} onChange={setPhase} options={[
@@ -51,7 +100,7 @@ export default function Nutrition() {
         { value: 'cut', label: 'Cut', hint: 'About 20% below maintenance' },
       ]} />
 
-      <T size="lg">How these are set</T>
+      <T size="lg">How targets are set</T>
       {t.explanations.map((e, i) => <Card key={i}><WhyBody e={e} /></Card>)}
 
       <T size="lg">Basics</T>
@@ -64,7 +113,6 @@ export default function Nutrition() {
           <T muted>{c.body}</T>
         </Card>
       ))}
-      <T muted size="sm">Food logging is coming in a later update.</T>
     </Screen>
   );
 }
