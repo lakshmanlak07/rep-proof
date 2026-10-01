@@ -5,12 +5,13 @@ import { useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, TextInput, View } from 'react-native';
 
 import { EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
-import { adjustForDay, isBadDay, suggest, warmup, type Suggestion } from '@/engine/progression.ts';
+import { adjustForDay, applyPins, isBadDay, suggest, warmup, type Suggestion } from '@/engine/progression.ts';
+import { cooldown, isMissed } from '@/engine/session.ts';
 import type { CheckIn, LoggedSet, PlannedExercise } from '@/engine/types.ts';
 import {
-  bestWeight, history, isDeload, saveProgram, saveWorkout, toProfile, track, updateProfile, useData, type DraftSet,
+  bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updateProfile, useData, type DraftSet,
 } from '@/lib/data';
-import { Button, C, Card, Loading, s, Screen, T } from '@/ui';
+import { Button, C, Card, Choice, Loading, s, Screen, T } from '@/ui';
 import { Why } from '@/why';
 
 type Row = { weight: string; reps: string; rir: string; done: boolean };
@@ -24,9 +25,10 @@ type Item = {
   sets: Row[];
 };
 type Draft = { dayIndex: number; startedAt: string; checkin: CheckIn | null; items: Item[] };
-type Summary = { sets: number; prs: string[]; next: { name: string; text: string }[] };
+type Summary = { sets: number; prs: string[]; next: { name: string; text: string }[]; cooldown: string[] };
 
 const KEY = 'draft_workout';
+const MISSED_KEY = 'missed_choice'; // last answer to the missed-session prompt
 const loadDraft = (): Draft | null => { try { return JSON.parse(localStorage.getItem(KEY) ?? 'null'); } catch { return null; } };
 const PAIN_MSG = "Pain isn't something RepProof can assess. Stop the exercise and consider seeing a qualified professional.";
 const REST = { compound: 150, isolation: 90 }; // seconds; PRD defaults
@@ -39,6 +41,14 @@ export default function Workout() {
   const [restEnd, setRestEnd] = useState<number | null>(null);
   const [swapFor, setSwapFor] = useState<number | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [missed, setMissed] = useState(false);
+  const [skip, setSkip] = useState(() => localStorage.getItem(MISSED_KEY) === 'skip');
+  const [stretched, setStretched] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (draft || !program) return;
+    recentWorkouts(1).then((r) => setMissed(isMissed(r[0] ? daysSince(r[0].finishedAt) : null, program.plan.days.length))).catch(() => {});
+  }, [draft, program]);
 
   useEffect(() => {
     if (draft) localStorage.setItem(KEY, JSON.stringify(draft));
@@ -47,14 +57,15 @@ export default function Workout() {
   if (!profile || !program) return <Loading />;
   const unit = profile.unit;
   const deload = isDeload(profile.deload_until);
-  const dayIndex = draft?.dayIndex ?? program.next_day;
+  const nDays = program.plan.days.length;
+  const dayIndex = draft?.dayIndex ?? (program.next_day + (missed && skip ? 1 : 0)) % nDays;
   const day = program.plan.days[dayIndex] ?? program.plan.days[0];
 
   async function buildItem(planned: PlannedExercise, exerciseId: string, badDay: boolean): Promise<Item> {
     const [h, prevBest] = await Promise.all([history(exerciseId), bestWeight(exerciseId)]);
     const lastWeight = h[0]?.length ? Math.max(...h[0].map((x) => x.weight)) : null;
     const raw = suggest({ ...planned, exerciseId }, h, profile!.experience, unit);
-    const sug = adjustForDay(raw, lastWeight, { badDay, deload });
+    const sug = adjustForDay(applyPins(raw, planned), lastWeight, { badDay, deload });
     return {
       planned, exerciseId, history: h, prevBest, suggestion: sug,
       changed: sug.weight !== lastWeight || sug.sets !== planned.sets,
@@ -68,6 +79,10 @@ export default function Workout() {
     setBusy(true);
     const badDay = !!c && isBadDay(c);
     if (c) track('checkin', { bad: badDay });
+    if (missed) {
+      localStorage.setItem(MISSED_KEY, skip ? 'skip' : 'now');
+      track('missed_session', { choice: skip ? 'skip' : 'now' });
+    }
     try {
       const items = await Promise.all(day.exercises.map((p) => buildItem(p, p.exerciseId, badDay)));
       setDraft({ dayIndex, startedAt: new Date().toISOString(), checkin: c, items });
@@ -92,6 +107,13 @@ export default function Workout() {
     }));
     if (!it.sets[j].done) setRestEnd(Date.now() + 1000 * (EXERCISE_BY_ID[it.exerciseId].compound ? REST.compound : REST.isolation));
   }
+
+  const move = (i: number, by: -1 | 1) => setDraft((d) => {
+    if (!d || i + by < 0 || i + by >= d.items.length) return d;
+    const items = [...d.items];
+    [items[i], items[i + by]] = [items[i + by], items[i]];
+    return { ...d, items };
+  });
 
   async function swap(i: number, exerciseId: string) {
     setSwapFor(null);
@@ -130,30 +152,33 @@ export default function Workout() {
         overridden: weight !== it.suggestion.weight || reps !== it.suggestion.reps,
       };
     }));
-    setBusy(true);
-    try {
-      await saveWorkout({
-        programId: program!.id, dayIndex: d.dayIndex, dayName: day.name, checkin: d.checkin, startedAt: d.startedAt,
-        sets, daysInPlan: program!.plan.days.length,
-      });
-    } catch {
-      setBusy(false);
-      return Alert.alert('Not saved yet', 'Your workout is kept on this phone. Check your connection and tap Finish again.');
-    }
     const prs: string[] = [];
     const next: Summary['next'] = [];
+    let perfDrops = 0;
     for (const it of d.items) {
       const done = sets.filter((x) => x.exerciseId === it.exerciseId);
       if (!done.length) continue;
       const name = EXERCISE_BY_ID[it.exerciseId].name;
       const top = Math.max(...done.map((x) => x.weight));
       if (it.prevBest !== null && top > it.prevBest) prs.push(`${name}: ${top} ${unit}`);
-      const n = suggest(it.planned, [done, ...it.history], profile!.experience, unit);
+      const n = applyPins(suggest(it.planned, [done, ...it.history], profile!.experience, unit), it.planned);
+      if (n.kind === 'drop') perfDrops++;
       next.push({ name, text: n.explanation.text });
+    }
+    setBusy(true);
+    try {
+      await saveWorkout({
+        programId: program!.id, dayIndex: d.dayIndex, dayName: day.name, checkin: d.checkin, startedAt: d.startedAt,
+        sets, daysInPlan: nDays, perfDrops,
+      });
+    } catch {
+      setBusy(false);
+      return Alert.alert('Not saved yet', 'Your workout is kept on this phone. Check your connection and tap Finish again.');
     }
     localStorage.removeItem(KEY);
     setBusy(false);
-    setSummary({ sets: sets.length, prs, next });
+    const trained = d.items.filter((it) => it.sets.some((r) => r.done)).map((it) => EXERCISE_BY_ID[it.exerciseId].muscle);
+    setSummary({ sets: sets.length, prs, next, cooldown: cooldown(trained) });
   }
 
   function confirmFinish() {
@@ -184,6 +209,18 @@ export default function Workout() {
         {summary.next.map((n) => (
           <Card key={n.name}><T bold>{n.name}</T><T muted>{n.text}</T></Card>
         ))}
+        {summary.cooldown.length ? (<>
+          <T bold>Cooldown (optional)</T>
+          {summary.cooldown.map((c) => {
+            const on = stretched.includes(c);
+            return (
+              <Pressable key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }}
+                onPress={() => setStretched(on ? stretched.filter((x) => x !== c) : [...stretched, c])}>
+                <Card style={[s.row, on && { borderColor: C.accent }]}><T>{on ? '☑' : '☐'}</T><T style={{ flex: 1 }}>{c}</T></Card>
+              </Pressable>
+            );
+          })}
+        </>) : null}
         <Button kind="primary" title="Done" onPress={async () => { await refresh(); router.back(); }} />
       </Screen>
     );
@@ -208,6 +245,15 @@ export default function Workout() {
     return (
       <Screen>
         <T size="lg">{day.name}{deload ? ' · deload' : ''}</T>
+        {missed ? (
+          <Card>
+            <T bold>You missed a session</T>
+            <Choice value={skip ? 'skip' : 'now'} onChange={(v) => setSkip(v === 'skip')} options={[
+              { value: 'now', label: `Do it now: ${program.plan.days[program.next_day].name}` },
+              { value: 'skip', label: `Skip to today's session: ${program.plan.days[(program.next_day + 1) % nDays].name}` },
+            ]} />
+          </Card>
+        ) : null}
         <T muted>Quick check-in. It takes ten seconds and adjusts today if you are run down.</T>
         {scale('sleep', 'Sleep last night', '1 terrible', '5 great')}
         {scale('soreness', 'Soreness', '1 very sore', '5 not sore')}
@@ -237,6 +283,12 @@ export default function Workout() {
           <Card key={`${i}-${it.exerciseId}`}>
             <View style={[s.row, { justifyContent: 'space-between' }]}>
               <T size="lg" style={{ flex: 1 }}>{ex.name}</T>
+              <Pressable accessibilityRole="button" accessibilityLabel="Move up" hitSlop={8} disabled={i === 0} onPress={() => move(i, -1)}>
+                <T muted size="lg" style={{ opacity: i === 0 ? 0.3 : 1 }}>↑</T>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Move down" hitSlop={8} disabled={i === draft.items.length - 1} onPress={() => move(i, 1)}>
+                <T muted size="lg" style={{ opacity: i === draft.items.length - 1 ? 0.3 : 1 }}>↓</T>
+              </Pressable>
               <Why e={it.suggestion.explanation} changed={it.changed} />
             </View>
             <T muted>

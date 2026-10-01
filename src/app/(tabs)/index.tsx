@@ -4,9 +4,12 @@ import { useCallback, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
-import { isDeload, useData } from '@/lib/data';
+import { deloadOffer, isMissed } from '@/engine/session.ts';
+import type { Explanation } from '@/engine/types.ts';
+import { daysSince, isDeload, localDate, recentWorkouts, track, updateProfile, useData } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Card, s, Screen, T } from '@/ui';
+import { Why } from '@/why';
 
 function startOfWeek() {
   const d = new Date();
@@ -16,13 +19,27 @@ function startOfWeek() {
 }
 
 export default function Home() {
-  const { profile, program } = useData();
+  const { profile, program, refresh } = useData();
   const [weekCount, setWeekCount] = useState<number | null>(null);
+  const [offer, setOffer] = useState<Explanation | null>(null);
+  const [missed, setMissed] = useState(false);
 
   useFocusEffect(useCallback(() => {
     supabase.from('workouts').select('id', { count: 'exact', head: true }).not('finished_at', 'is', null).gte('started_at', startOfWeek())
       .then(({ count }) => setWeekCount(count ?? 0));
-  }, []));
+    recentWorkouts(4).then((r) => {
+      setOffer(deloadOffer(r));
+      setMissed(isMissed(r[0] ? daysSince(r[0].finishedAt) : null, program?.plan.days.length ?? 3));
+    }).catch(() => {});
+  }, [program]));
+
+  async function acceptDeload() {
+    const end = new Date();
+    end.setDate(end.getDate() + 6);
+    await updateProfile(profile!.id, { deload_until: localDate(end) });
+    track('deload', { trigger: 'offer' });
+    await refresh();
+  }
 
   if (!program || !profile) return null;
   const day = program.plan.days[program.next_day];
@@ -40,6 +57,24 @@ export default function Home() {
         <Card style={{ borderColor: '#7DB7FF' }}>
           <T bold>Deload week</T>
           <T muted>Half the sets, same weights, until {profile.deload_until}.</T>
+        </Card>
+      ) : null}
+
+      {offer && !isDeload(profile.deload_until) ? (
+        <Card style={{ borderColor: '#7DB7FF' }}>
+          <View style={[s.row, { justifyContent: 'space-between' }]}>
+            <T bold>Deload suggested</T>
+            <Why e={offer} changed />
+          </View>
+          <T muted>Your recent sessions suggest a lighter week. Your call.</T>
+          <Button title="Start a deload week" onPress={acceptDeload} />
+        </Card>
+      ) : null}
+
+      {missed ? (
+        <Card>
+          <T bold>Missed a session?</T>
+          <T muted>No problem. When you start, choose to do it now or skip to the next one.</T>
         </Card>
       ) : null}
 

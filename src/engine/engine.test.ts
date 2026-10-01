@@ -160,3 +160,25 @@ test('nutrition targets', async () => {
   assert.equal(targets({ ...base, unit: 'lb', bodyweight: 176.37 }).protein, 128);
   for (const e of m.explanations) for (const r of e.refIds) assert.ok(REFERENCES[r]);
 });
+
+test('suggestion kinds and pins', async () => {
+  const { applyPins } = await import('./progression.ts');
+  assert.equal(suggest(bench, [], 'intermediate', 'kg').kind, 'calibrate');
+  assert.equal(suggest(bench, [sets(3, 60, 5), sets(3, 60, 4)], 'intermediate', 'kg').kind, 'drop');
+  assert.equal(suggest(bench, [sets(3, 60, 10)], 'intermediate', 'kg').kind, 'up');
+  const pinned = applyPins(suggest(bench, [sets(3, 60, 8)], 'intermediate', 'kg'), { ...bench, pinnedSets: 4, pinnedReps: 10 });
+  assert.deepEqual([pinned.sets, pinned.reps, pinned.weight], [4, 10, 60]);
+  assert.ok(pinned.explanation.text.includes('pinned'));
+});
+
+test('cooldown, missed sessions, deload offer', async () => {
+  const { cooldown, isMissed, deloadOffer } = await import('./session.ts');
+  assert.equal(cooldown(['chest', 'chest', 'back', 'quads', 'calves', 'biceps']).length, 4);
+  assert.ok(!isMissed(null, 3));
+  assert.ok(!isMissed(4, 3) && isMissed(5, 3));
+  assert.ok(!isMissed(3, 6) && isMissed(4, 6));
+  const bad = { sleep: 1, soreness: 2, energy: 2 };
+  assert.equal(deloadOffer([{ checkin: bad, perfDrops: 1 }, { checkin: null, perfDrops: 0 }]), null);
+  assert.ok(deloadOffer([{ checkin: bad, perfDrops: 1 }, { checkin: bad, perfDrops: 1 }]));
+  assert.equal(deloadOffer([{ checkin: bad, perfDrops: 0 }, { checkin: bad, perfDrops: 1 }]), null);
+});

@@ -1,6 +1,7 @@
 import type { CheckIn, Experience, Explanation, LoggedSet, PlannedExercise, Unit } from './types.ts';
 
 export type Suggestion = {
+  kind: 'calibrate' | 'drop' | 'hold' | 'up' | 'reps';
   weight: number | null; // null = calibrate: user picks the starting weight
   reps: number;
   sets: number;
@@ -30,7 +31,7 @@ export function suggest(
     const text = experience === 'beginner'
       ? `First time on this one. Pick a weight that feels challenging for ${repMin} reps but you could do 2-3 more. Lighter is fine; the app adjusts from here.`
       : `First time on this one. Pick a weight you can do for ${repMin} reps with about ${rirTarget} left in the tank.`;
-    return { weight: null, reps: repMin, sets, explanation: { text, label: 'rule', refIds: [] } };
+    return { kind: 'calibrate', weight: null, reps: repMin, sets, explanation: { text, label: 'rule', refIds: [] } };
   }
 
   const weight = Math.max(...last.map((s) => s.weight));
@@ -45,13 +46,13 @@ export function suggest(
   if (below(last) && below(history[1])) {
     const next = Math.max(0, Math.min(weight - inc, round(weight * 0.95, unit)));
     return {
-      weight: next, reps: repMin, sets,
+      kind: 'drop', weight: next, reps: repMin, sets,
       explanation: { text: `Down to ${fmt(next, unit)}: you were under ${repMin} reps two sessions in a row. Resetting a little lets you build back up.`, label: 'rule', refIds: [] },
     };
   }
   if (below(last)) {
     return {
-      weight, reps: repMin, sets,
+      kind: 'hold', weight, reps: repMin, sets,
       explanation: { text: `Same weight: you were under ${repMin} reps last time. One off session is not a trend.`, label: 'rule', refIds: [] },
     };
   }
@@ -60,28 +61,39 @@ export function suggest(
     if (usesRir && avgRir >= rirTarget + 2) {
       const next = weight + 2 * inc;
       return {
-        weight: next, reps: repMin, sets,
+        kind: 'up', weight: next, reps: repMin, sets,
         explanation: { text: `Up ${2 * inc} ${unit}: you hit all ${repMax} reps with about ${Math.round(avgRir)} in reserve, so it was too easy for one small step.`, label: 'direct', refIds: ['rir_autoreg'] },
       };
     }
     const next = weight + inc;
     return {
-      weight: next, reps: repMin, sets,
+      kind: 'up', weight: next, reps: repMin, sets,
       explanation: { text: `Up ${inc} ${unit}: you hit the top of the range (${repMax} reps) on every set. Reps go back to ${repMin} and climb again.`, label: 'rule', refIds: [] },
     };
   }
 
   if (usesRir && minRir < rirTarget - 1) {
     return {
-      weight, reps: minReps, sets,
+      kind: 'hold', weight, reps: minReps, sets,
       explanation: { text: `Same weight and reps: last time you went to ${minRir} in reserve, closer to failure than the target of ${rirTarget}. Match it with more left in the tank first.`, label: 'direct', refIds: ['rir_autoreg'] },
     };
   }
 
   const reps = Math.min(minReps + 1, repMax);
   return {
-    weight, reps, sets,
+    kind: 'reps', weight, reps, sets,
     explanation: { text: `Same weight, aim for ${reps} reps: add reps until you reach ${repMax} on every set, then the weight goes up.`, label: 'rule', refIds: [] },
+  };
+}
+
+/** User-pinned sets/reps win over the engine until unpinned. */
+export function applyPins(s: Suggestion, plan: PlannedExercise): Suggestion {
+  if (plan.pinnedSets === undefined && plan.pinnedReps === undefined) return s;
+  return {
+    ...s,
+    sets: plan.pinnedSets ?? s.sets,
+    reps: plan.pinnedReps ?? s.reps,
+    explanation: { ...s.explanation, text: `${s.explanation.text} You pinned ${[plan.pinnedSets !== undefined && `${plan.pinnedSets} sets`, plan.pinnedReps !== undefined && `${plan.pinnedReps} reps`].filter(Boolean).join(' and ')}, so the app keeps that.` },
   };
 }
 

@@ -119,10 +119,10 @@ export async function bestWeight(exerciseId: string): Promise<number | null> {
 export type DraftSet = { exerciseId: string; setIndex: number; weight: number; reps: number; rir: number | null; overridden: boolean };
 
 export async function saveWorkout(w: {
-  programId: string; dayIndex: number; dayName: string; checkin: CheckIn | null; startedAt: string; sets: DraftSet[]; daysInPlan: number;
+  programId: string; dayIndex: number; dayName: string; checkin: CheckIn | null; startedAt: string; sets: DraftSet[]; daysInPlan: number; perfDrops: number;
 }) {
   const workout = must(await supabase.from('workouts').insert({
-    program_id: w.programId, day_index: w.dayIndex, day_name: w.dayName, checkin: w.checkin, started_at: w.startedAt, finished_at: new Date().toISOString(),
+    program_id: w.programId, day_index: w.dayIndex, day_name: w.dayName, checkin: w.checkin, perf_drops: w.perfDrops, started_at: w.startedAt, finished_at: new Date().toISOString(),
   }).select('id').single());
   if (w.sets.length) {
     must(await supabase.from('logged_sets').insert(w.sets.map((x) => ({
@@ -132,6 +132,19 @@ export async function saveWorkout(w: {
   must(await supabase.from('programs').update({ next_day: (w.dayIndex + 1) % w.daysInPlan }).eq('id', w.programId));
   track('workout_finished', { sets: w.sets.length, checkin: !!w.checkin });
 }
+
+export async function updatePlan(programId: string, plan: Program) {
+  must(await supabase.from('programs').update({ plan }).eq('id', programId));
+}
+
+/** Last finished workouts, newest first: for missed-session and deload checks. */
+export async function recentWorkouts(n = 4) {
+  const rows = must(await supabase.from('workouts').select('finished_at, checkin, perf_drops')
+    .not('finished_at', 'is', null).order('finished_at', { ascending: false }).limit(n));
+  return rows.map((r) => ({ finishedAt: r.finished_at as string, checkin: r.checkin as CheckIn | null, perfDrops: r.perf_drops as number }));
+}
+
+export const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 864e5);
 
 export async function updateProfile(id: string, patch: Partial<ProfileRow>) {
   must(await supabase.from('profiles').update(patch).eq('id', id));

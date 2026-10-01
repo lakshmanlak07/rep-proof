@@ -40,6 +40,7 @@ create table public.workouts (
   day_index int not null,
   day_name text not null,
   checkin jsonb, -- {sleep, soreness, energy}; null = skipped
+  perf_drops int not null default 0, -- exercises that hit the performance-drop rule
   started_at timestamptz not null default now(),
   finished_at timestamptz
 );
@@ -66,16 +67,64 @@ create table public.events (
   created_at timestamptz not null default now()
 );
 
+create table public.cardio_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users on delete cascade default auth.uid(),
+  kind text not null,
+  minutes int not null check (minutes between 1 and 600),
+  intensity text not null check (intensity in ('easy', 'moderate', 'hard')),
+  logged_on date not null default current_date,
+  created_at timestamptz not null default now()
+);
+
+create table public.food_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users on delete cascade default auth.uid(),
+  logged_on date not null,
+  meal text not null check (meal in ('breakfast', 'lunch', 'dinner', 'snack')),
+  fdc_id int not null,
+  name text not null,
+  grams numeric not null check (grams > 0),
+  kcal numeric not null,
+  protein numeric not null,
+  fat numeric not null,
+  carbs numeric not null,
+  created_at timestamptz not null default now()
+);
+create index food_logs_day on public.food_logs (user_id, logged_on);
+
+create table public.saved_meals (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users on delete cascade default auth.uid(),
+  name text not null,
+  items jsonb not null, -- [{fdc_id, name, grams, kcal, protein, fat, carbs}]
+  created_at timestamptz not null default now()
+);
+
+-- USDA FoodData Central cache, written only by the `food` edge function (no client policies).
+create table public.food_cache (
+  key text primary key, -- 'q:<query>' or 'upc:<code>'
+  results jsonb not null,
+  fetched_at timestamptz not null default now()
+);
+
 alter table public.profiles enable row level security;
 alter table public.programs enable row level security;
 alter table public.workouts enable row level security;
 alter table public.logged_sets enable row level security;
 alter table public.events enable row level security;
+alter table public.cardio_logs enable row level security;
+alter table public.food_logs enable row level security;
+alter table public.saved_meals enable row level security;
+alter table public.food_cache enable row level security;
 
 create policy own on public.profiles for all using (id = auth.uid()) with check (id = auth.uid());
 create policy own on public.programs for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy own on public.workouts for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy own on public.logged_sets for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy own on public.cardio_logs for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy own on public.food_logs for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy own on public.saved_meals for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 -- events: users can add their own, never read or change them
 create policy insert_own on public.events for insert with check (user_id = auth.uid());
 

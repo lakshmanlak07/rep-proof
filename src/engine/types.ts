@@ -49,6 +49,8 @@ export type PlannedExercise = {
   repMin: number;
   repMax: number;
   rirTarget: number;
+  pinnedSets?: number; // user override; engine stops adjusting it
+  pinnedReps?: number;
 };
 
 export type PlannedDay = { name: string; exercises: PlannedExercise[] };
