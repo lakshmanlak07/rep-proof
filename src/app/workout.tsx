@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, TextInput, View } from 'react-native';
 
 import { EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
-import { adjustForDay, applyPins, isBadDay, suggest, warmup, type Suggestion } from '@/engine/progression.ts';
+import { REST_WHY } from '@/engine/plan.ts';
+import { adjustForDay, applyPins, isBadDay, suggest, warmup, WARMUP_WHY, type Suggestion } from '@/engine/progression.ts';
 import { cooldown, isMissed } from '@/engine/session.ts';
 import type { CheckIn, LoggedSet, PlannedExercise } from '@/engine/types.ts';
 import {
@@ -295,7 +296,10 @@ export default function Workout() {
               {w === null ? 'Calibrate: pick your starting weight' : `${w} ${unit}`} · {it.suggestion.reps}–{it.planned.repMax} reps · {it.planned.rirTarget} in reserve
             </T>
             {i === firstCompound && w !== null && ex.equipment.includes('barbell') ? (
-              <T muted size="sm">Warm-up: {warmup(w, unit).map((x) => `${x.weight}×${x.reps}`).join(' · ')}</T>
+              <View style={s.row}>
+                <T muted size="sm" style={{ flex: 1 }}>Warm-up: {warmup(w, unit).map((x) => `${x.weight}×${x.reps}`).join(' · ')}</T>
+                <Why e={WARMUP_WHY} />
+              </View>
             ) : null}
             {ex.cues.map((c) => <T key={c} muted size="sm">• {c}</T>)}
 
@@ -360,8 +364,9 @@ function RestTimer({ end, onDone }: { end: number; onDone: () => void }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel="Dismiss rest timer" onPress={onDone}>
       <Card style={{ borderColor: left ? C.border : C.accent, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <T bold>{left ? 'Rest' : 'Rest done. Next set'}</T>
+        <T bold style={{ flex: 1 }}>{left ? 'Rest' : 'Rest done. Next set'}</T>
         <T size="lg">{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</T>
+        <View style={{ marginLeft: 12 }}><Why e={REST_WHY} /></View>
       </Card>
     </Pressable>
   );

@@ -126,7 +126,7 @@ test('bad day and deload never raise load and cut sets', () => {
 });
 
 test('warm-up ramp', () => {
-  assert.deepEqual(warmup(100, 'kg'), [{ weight: 20, reps: 10 }, { weight: 50, reps: 5 }, { weight: 75, reps: 3 }]);
+  assert.deepEqual(warmup(100, 'kg'), [{ weight: 20, reps: 10 }, { weight: 50, reps: 5 }, { weight: 80, reps: 3 }]);
   assert.equal(warmup(30, 'kg')[1].weight, 20); // never below the bar
 });
 
@@ -181,4 +181,29 @@ test('cooldown, missed sessions, deload offer', async () => {
   assert.equal(deloadOffer([{ checkin: bad, perfDrops: 1 }, { checkin: null, perfDrops: 0 }]), null);
   assert.ok(deloadOffer([{ checkin: bad, perfDrops: 1 }, { checkin: bad, perfDrops: 1 }]));
   assert.equal(deloadOffer([{ checkin: bad, perfDrops: 0 }, { checkin: bad, perfDrops: 1 }]), null);
+});
+
+test('every reference is complete and every cited id exists', async () => {
+  const { NUTRITION_CARDS } = await import('./nutrition.ts');
+  const { WARMUP_WHY } = await import('./progression.ts');
+  const { REST_WHY } = await import('./plan.ts');
+  for (const r of Object.values(REFERENCES)) {
+    assert.match(r.doi, /^10\.\d{4,}\//, `${r.id} DOI`);
+    assert.match(r.pmid, /^\d+$/, `${r.id} PMID`);
+    assert.ok(r.citation && r.type && r.population && r.finding, `${r.id} fields`);
+  }
+  const cited = [WARMUP_WHY, REST_WHY, ...NUTRITION_CARDS.map((c) => c.explanation)].flatMap((e) => e.refIds);
+  for (const id of cited) assert.ok(REFERENCES[id], `unknown ref ${id}`);
+  // RepProof rules never carry a citation that claims to support them, except the surplus review that says "unknown"
+  for (const c of NUTRITION_CARDS) if (c.explanation.label === 'rule') assert.deepEqual(c.explanation.refIds.filter((r) => r !== 'surplus'), []);
+});
+
+test('science library cites real references and covers all three labels', async () => {
+  const { TOPICS, UNKNOWNS } = await import('./science.ts');
+  for (const topic of TOPICS) {
+    assert.ok(topic.refIds.length, `${topic.title} has no studies`);
+    for (const id of topic.refIds) assert.ok(REFERENCES[id], `${topic.title}: unknown ref ${id}`);
+  }
+  assert.deepEqual(new Set(TOPICS.map((x) => x.label)), new Set(['direct', 'principle', 'rule']));
+  assert.ok(UNKNOWNS.length > 0);
 });

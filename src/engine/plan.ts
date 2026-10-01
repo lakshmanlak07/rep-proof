@@ -30,6 +30,12 @@ export const SPLIT_DAYS: Record<SplitId, number[]> = {
   full_body: [2, 3, 4], upper_lower: [2, 4], ppl: [3, 6], ulppl: [5],
 };
 
+export const REST_WHY: Explanation = {
+  text: 'Rest about 90 seconds on single-joint lifts and 2.5 minutes on big compound lifts. Resting over 60 seconds showed a small growth benefit with little difference past 90 seconds; for heavy compounds, 3 minutes beat 1 minute for strength and size in trained men.',
+  label: 'principle',
+  refIds: ['rest', 'rest_long'],
+};
+
 export function recommendSplit(days: number): SplitId {
   if (days <= 3) return 'full_body';
   if (days === 4) return 'upper_lower';
@@ -58,9 +64,9 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   const explanations: Explanation[] = [];
 
   explanations.push({
-    text: `${SPLIT_NAMES[split]} over ${profile.days} days. When weekly sets are equal, how often you train a muscle makes little difference to growth, so the split is about fitting your schedule.`,
-    label: 'principle',
-    refIds: ['frequency_meta', 'frequency_3v6'],
+    text: `${SPLIT_NAMES[split]} over ${profile.days} days. When weekly sets are equal, how often you train a muscle made no meaningful difference to growth across 25 studies, so the split is about fitting your schedule.`,
+    label: 'direct',
+    refIds: ['frequency_meta', 'frequency_2v3', 'frequency_3v6'],
   });
 
   // 1. Volume allocator
@@ -78,7 +84,7 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   }
 
   explanations.push({
-    text: `Starting at about ${base} hard sets per muscle per week for your experience level. More volume tends to mean more growth, so it only goes up if progress stalls and your check-ins look good.`,
+    text: `Starting at about ${base} hard sets per muscle per week for your experience level. More weekly sets tends to mean more growth, but no study has found one best number, so the exact start is our choice.`,
     label: 'principle',
     refIds: ['volume_dose'],
   });
@@ -129,10 +135,23 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   });
 
   explanations.push({
-    text: `Reps mostly between 5 and 12, stopping ${rirTarget(profile.experience)} reps short of failure. People judge reps-in-reserve more accurately on sets of 12 or fewer.`,
+    text: profile.goal === 'muscle'
+      ? 'Reps mostly 6 to 12. Muscle grows similarly across light and heavy loads, so the range is about practicality: heavy enough to track, light enough to recover.'
+      : 'Heavier sets (5 to 8 reps) on the big lifts. Muscle grows across a wide range of loads, but heavier loads build more max strength.',
     label: 'principle',
-    refIds: ['rir_accuracy'],
+    refIds: ['load_meta'],
   });
+  explanations.push({
+    text: `Sets stop about ${rirTarget(profile.experience)} reps short of failure. Going to failure was not needed for strength or size gains on average; trained lifters saw a small extra benefit, so the target is our trade-off between results and recovery.`,
+    label: 'principle',
+    refIds: ['failure'],
+  });
+  explanations.push({
+    text: 'Guessing reps left is imperfect, but it gets more accurate with heavier loads and closer to failure. Trained lifters were off by under one rep on average on the bench press.',
+    label: 'principle',
+    refIds: ['rir_accuracy', 'rir_bench'],
+  });
+  explanations.push(REST_WHY);
 
   return { split, weeklySets, days, explanations };
 }

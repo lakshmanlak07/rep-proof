@@ -29,11 +29,21 @@ export function WhyBody({ e }: { e: Explanation }) {
       <Badge label={e.label} />
       <T>{e.text}</T>
       <T muted size="sm">{LABELS[e.label].hint}</T>
-      {e.refIds.map((id) => {
+      <RefLinks ids={e.refIds} />
+    </View>
+  );
+}
+
+/** Study list: citation, study type and population; tap opens the DOI page. */
+export function RefLinks({ ids }: { ids: string[] }) {
+  return (
+    <View style={{ gap: 8 }}>
+      {ids.map((id) => {
         const r = REFERENCES[id];
         return (
-          <Pressable key={id} disabled={!r.doi} onPress={() => WebBrowser.openBrowserAsync(`https://doi.org/${r.doi}`)}>
-            <T size="sm" style={{ color: r.doi ? C.accent : C.muted }}>{r.citation}{r.doi ? ' Open study' : ''}</T>
+          <Pressable key={id} accessibilityRole="link" onPress={() => { WebBrowser.openBrowserAsync(`https://doi.org/${r.doi}`); track('study_opened', { id }); }}>
+            <T size="sm" style={{ color: C.accent }}>{r.citation} Open study</T>
+            <T size="sm" muted>{r.type} · {r.population}</T>
           </Pressable>
         );
       })}

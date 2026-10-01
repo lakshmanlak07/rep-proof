@@ -68,7 +68,7 @@ export function suggest(
     const next = weight + inc;
     return {
       kind: 'up', weight: next, reps: repMin, sets,
-      explanation: { text: `Up ${inc} ${unit}: you hit the top of the range (${repMax} reps) on every set. Reps go back to ${repMin} and climb again.`, label: 'rule', refIds: [] },
+      explanation: { text: `Up ${inc} ${unit}: you hit the top of the range (${repMax} reps) on every set. Reps go back to ${repMin} and climb again. Adding reps and adding weight both built muscle in a direct comparison; this method uses both.`, label: 'principle', refIds: ['progression'] },
     };
   }
 
@@ -82,7 +82,7 @@ export function suggest(
   const reps = Math.min(minReps + 1, repMax);
   return {
     kind: 'reps', weight, reps, sets,
-    explanation: { text: `Same weight, aim for ${reps} reps: add reps until you reach ${repMax} on every set, then the weight goes up.`, label: 'rule', refIds: [] },
+    explanation: { text: `Same weight, aim for ${reps} reps: add reps until you reach ${repMax} on every set, then the weight goes up. Adding reps worked as well as adding load for muscle growth in an 8-week study.`, label: 'principle', refIds: ['progression'] },
   };
 }
 
@@ -114,17 +114,23 @@ export function adjustForDay(s: Suggestion, lastWeight: number | null, opts: { b
   if (opts.badDay) {
     return {
       ...s, weight: holdWeight, sets: Math.max(1, s.sets - 1),
-      explanation: { text: 'Rough check-in today: one set fewer and no weight increase. Short self-reported check-ins track how training is going.', label: 'principle', refIds: ['checkins'] },
+      explanation: { text: 'Rough check-in today: one set fewer and no weight increase. Self-reported well-being tracks training stress well in athletes, but no readiness score is proven, so the cut-offs and the one-set cut are our choices.', label: 'principle', refIds: ['checkins', 'autoreg_review'] },
     };
   }
   return s;
 }
 
-// Warm-up ramp before the first compound: bar x10, 50% x5, 75% x3. RepProof rule.
+// Warm-up ramp before the first compound: bar x10, 50% x5, 80% x3. Last step at 80% follows Viveiros 2024.
+export const WARMUP_WHY: Explanation = {
+  text: 'Warm-up: the bar, then about half, then about 80% of your working weight. A warm-up at 80% of the working load led to more total reps than lighter warm-ups in one small study of 15 trained men. The exact steps are our choice.',
+  label: 'principle',
+  refIds: ['warmup'],
+};
+
 export function warmup(workWeight: number, unit: Unit, barWeight = unit === 'kg' ? 20 : 45): { weight: number; reps: number }[] {
   return [
     { weight: barWeight, reps: 10 },
     { weight: Math.max(barWeight, round(workWeight * 0.5, unit)), reps: 5 },
-    { weight: Math.max(barWeight, round(workWeight * 0.75, unit)), reps: 3 },
+    { weight: Math.max(barWeight, round(workWeight * 0.8, unit)), reps: 3 },
   ];
 }

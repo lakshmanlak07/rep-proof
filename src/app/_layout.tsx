@@ -26,6 +26,7 @@ function Routes() {
         <Stack.Screen name="workout" options={{ gestureEnabled: false }} />
         <Stack.Screen name="settings" options={{ headerShown: true, title: 'Settings' }} />
         <Stack.Screen name="food" options={{ headerShown: true, title: 'Add food' }} />
+        <Stack.Screen name="science" options={{ headerShown: true, title: 'The science' }} />
       </Stack.Protected>
     </Stack>
   );

@@ -28,13 +28,13 @@ export function targets(i: NutritionInput): Targets {
 
   const explanations: Explanation[] = [
     {
-      text: `About ${calories} kcal a day: your estimated resting energy (Mifflin-St Jeor equation from weight, height, age${i.sex ? ' and sex' : ''}) × ${activity} for ${i.days} training days a week${i.phase === 'maintain' ? '' : i.phase === 'gain' ? ', plus 10% to gain' : ', minus 20% to cut'}. It is an estimate: adjust if your weight trend says otherwise.`,
+      text: `About ${calories} kcal a day: your estimated resting energy (Mifflin-St Jeor equation from weight, height, age${i.sex ? ' and sex' : ''}) × ${activity} for ${i.days} training days a week${i.phase === 'maintain' ? '' : i.phase === 'gain' ? ', plus 10% to gain' : ', minus 20% to cut'}. The equation explains about 71% of differences between people, so treat it as a starting point and adjust to your weight trend.`,
       label: 'principle',
       refIds: ['mifflin'],
     },
     {
-      text: `${protein} g protein a day (1.6 g per kg of bodyweight). Gains from extra protein level off around this intake.`,
-      label: 'principle',
+      text: `${protein} g protein a day (1.6 g per kg of bodyweight). Across 49 trials, gains in lean mass leveled off around this intake.`,
+      label: 'direct',
       refIds: ['protein'],
     },
     {
@@ -43,6 +43,11 @@ export function targets(i: NutritionInput): Targets {
       refIds: [],
     },
   ];
+  if (i.phase !== 'maintain') {
+    explanations.push(i.phase === 'gain'
+      ? { text: 'The +10% surplus is our default. No study has found the best surplus size for building muscle.', label: 'rule', refIds: ['surplus'] }
+      : { text: 'The -20% deficit is our default, not a study finding. Lifting while you cut helps keep muscle; keep training hard.', label: 'rule', refIds: [] });
+  }
   if (!i.sex) {
     explanations.push({ text: 'You chose not to give your sex, so the calorie estimate uses the midpoint of the male and female equations.', label: 'rule', refIds: [] });
   }
@@ -53,12 +58,12 @@ export function targets(i: NutritionInput): Targets {
 export const NUTRITION_CARDS: { title: string; body: string; explanation: Explanation }[] = [
   {
     title: 'Protein basics',
-    body: 'Protein supplies the building blocks for new muscle. Spread it over 3 to 5 meals and hit your daily total most days. Food or shakes both count.',
-    explanation: { text: 'Daily protein around 1.6 g per kg of bodyweight is where added protein stops adding measurable muscle gain on average.', label: 'principle', refIds: ['protein'] },
+    body: 'Protein supplies the building blocks for new muscle. Hitting your daily total matters most. Spreading it over 3 to 5 meals is a sensible default. Food or shakes both count.',
+    explanation: { text: 'Daily total: lean-mass gains leveled off around 1.6 g per kg across 49 trials. Spreading it out: 20 g every 3 hours raised muscle protein synthesis more than smaller or larger doses in one short-term study, which is a marker, not proof of more growth.', label: 'principle', refIds: ['protein', 'protein_distribution'] },
   },
   {
     title: 'Gaining vs cutting',
     body: 'Eating a bit above maintenance supports muscle gain; eating below it loses fat. Change slowly: check your average bodyweight over 2 to 3 weeks before adjusting calories again.',
-    explanation: { text: 'The phase percentages (+10% to gain, -20% to cut) and the 2-3 week check are RepProof defaults.', label: 'rule', refIds: [] },
+    explanation: { text: 'The phase percentages (+10% to gain, -20% to cut) and the 2-3 week check are RepProof defaults. A review found the best surplus size for muscle gain is unknown.', label: 'rule', refIds: ['surplus'] },
   },
 ];

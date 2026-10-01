@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { router } from 'expo-router';
 import { Alert, Modal, Pressable, View } from 'react-native';
 
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
@@ -85,6 +86,7 @@ export default function Plan() {
       <T size="lg">Why this plan</T>
       {plan.explanations.map((e, i) => <Card key={i}><WhyBody e={e} /></Card>)}
 
+      <Button title="The science behind RepProof" onPress={() => router.push('/science')} />
       <Button title="Change days or split" onPress={() => setSchedule({ days: profile.days, split: plan.split })} />
       <Button title={deload ? `End deload (until ${profile.deload_until})` : 'Start a deload week'} onPress={toggleDeload} />
 

@@ -1,5 +1,6 @@
 import 'expo-sqlite/localStorage/install';
 
+import { router } from 'expo-router';
 import { Alert, Linking } from 'react-native';
 
 import { useData } from '@/lib/data';
@@ -40,6 +41,7 @@ export default function Settings() {
         <T bold>Disclaimer</T>
         <T muted>{DISCLAIMER}</T>
       </Card>
+      <Button title="The science behind RepProof" onPress={() => router.push('/science')} />
       {FEEDBACK_EMAIL ? (
         <Button title="Send feedback" onPress={() => Linking.openURL(`mailto:${FEEDBACK_EMAIL}?subject=RepProof%20beta%20feedback`)} />
       ) : null}
