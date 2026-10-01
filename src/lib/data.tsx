@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 
+import type { Phase } from '@/engine/nutrition.ts';
 import { buildProgram } from '@/engine/plan.ts';
 import type { CheckIn, Experience, Goal, LoggedSet, Pattern, Profile, Program, Setup, SplitId, Unit } from '@/engine/types.ts';
 import { supabase } from './supabase';
@@ -16,6 +17,8 @@ export type ProfileRow = {
   days: number;
   session_minutes: number;
   bodyweight: number;
+  height_cm: number;
+  nutrition_phase: Phase;
   sex: 'male' | 'female' | null;
   unit: Unit;
   avoid: Pattern[];

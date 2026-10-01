@@ -9,7 +9,7 @@ import { clearPending, getPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Choice, Field, Screen, T } from '@/ui';
 
-const STEPS = ['experience', 'setup', 'goal', 'days', 'minutes', 'body', 'sex', 'avoid', 'split'] as const;
+const STEPS = ['experience', 'setup', 'goal', 'days', 'minutes', 'body', 'height', 'sex', 'avoid', 'split'] as const;
 
 export default function Onboarding() {
   const { session, refresh } = useData();
@@ -21,6 +21,9 @@ export default function Onboarding() {
   const [minutes, setMinutes] = useState<number | null>(null);
   const [unit, setUnit] = useState<Unit>('kg');
   const [bodyweight, setBodyweight] = useState('');
+  const [cm, setCm] = useState('');
+  const [ft, setFt] = useState('');
+  const [inch, setInch] = useState('');
   const [sex, setSex] = useState<'male' | 'female' | 'none' | null>(null);
   const [avoid, setAvoid] = useState<Pattern[]>([]);
   const [split, setSplit] = useState<SplitId | null>(null);
@@ -28,6 +31,7 @@ export default function Onboarding() {
   const [error, setError] = useState('');
 
   const pending = getPending();
+  const heightCm = unit === 'kg' ? Number(cm) : Math.round((Number(ft) * 12 + Number(inch || 0)) * 2.54);
   const name = STEPS[step];
   const next = () => setStep(step + 1);
   const pick = <V,>(set: (v: V) => void) => (v: V) => { set(v); next(); }; // one tap per screen
@@ -41,7 +45,7 @@ export default function Onboarding() {
         birth_year: pending.birthYear,
         disclaimer_accepted_at: pending.disclaimerAt,
         experience: experience!, goal: goal!, setup: setup!, days: days!, session_minutes: minutes!,
-        bodyweight: Number(bodyweight), sex: sex === 'none' ? null : sex, unit, avoid,
+        bodyweight: Number(bodyweight), height_cm: heightCm, nutrition_phase: 'maintain', sex: sex === 'none' ? null : sex, unit, avoid,
       };
       must(await supabase.from('profiles').upsert(row));
       await saveProgram(toProfile({ ...row, plan_tier: 'free', deload_until: null }), chosen);
@@ -108,6 +112,19 @@ export default function Onboarding() {
         <Field keyboardType="decimal-pad" placeholder={unit === 'kg' ? 'e.g. 75' : 'e.g. 165'} value={bodyweight} onChangeText={setBodyweight} />
         <T muted size="sm">Used for progress tracking and nutrition targets. Weights in the app use this unit.</T>
         <Button kind="primary" title="Continue" disabled={!(Number(bodyweight) > 20)} onPress={next} />
+      </>)}
+      {name === 'height' && (<>
+        <T size="lg">Your height</T>
+        {unit === 'kg' ? (
+          <Field keyboardType="number-pad" placeholder="cm, e.g. 178" value={cm} onChangeText={setCm} />
+        ) : (
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1 }}><Field label="Feet" keyboardType="number-pad" value={ft} onChangeText={setFt} /></View>
+            <View style={{ flex: 1 }}><Field label="Inches" keyboardType="number-pad" value={inch} onChangeText={setInch} /></View>
+          </View>
+        )}
+        <T muted size="sm">Only used to estimate your calorie target.</T>
+        <Button kind="primary" title="Continue" disabled={!(heightCm >= 100 && heightCm <= 250)} onPress={next} />
       </>)}
       {name === 'sex' && (<>
         <T size="lg">Sex (optional)</T>

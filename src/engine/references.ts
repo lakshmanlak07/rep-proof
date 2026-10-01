@@ -47,6 +47,17 @@ export const REFERENCES: Record<string, Reference> = {
       'Coleman et al. (2024). Gaining more from doing less? The effects of a one-week deload period during supervised resistance training on muscular adaptations. PeerJ 12:e16777.',
     doi: '10.7717/peerj.16777',
   },
+  // Added for nutrition targets (2026-10-01). DOIs to confirm before linking.
+  mifflin: {
+    id: 'mifflin',
+    citation:
+      'Mifflin et al. (1990). A new predictive equation for resting energy expenditure in healthy individuals. Am J Clin Nutr 51(2):241-247.',
+  },
+  protein: {
+    id: 'protein',
+    citation:
+      'Morton et al. (2018). A systematic review, meta-analysis and meta-regression of the effect of protein supplementation on resistance training-induced gains in muscle mass and strength in healthy adults. BJSM 52(6):376-384.',
+  },
   rest: {
     id: 'rest',
     citation:

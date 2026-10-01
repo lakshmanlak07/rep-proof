@@ -146,3 +146,17 @@ test('simulated lifter over 8 weeks progresses and recovers from a bad patch', (
   }
   assert.ok(weight > 60, `no progress after 8 weeks: ${weight}`);
 });
+
+test('nutrition targets', async () => {
+  const { targets } = await import('./nutrition.ts');
+  const base = { bodyweight: 80, unit: 'kg' as const, heightCm: 180, age: 30, sex: 'male' as const, days: 4, phase: 'maintain' as const };
+  const m = targets(base);
+  // resting = 800 + 1125 - 150 + 5 = 1780; x1.55 = 2759 -> 2760
+  assert.equal(m.calories, 2760);
+  assert.equal(m.protein, 128);
+  assert.ok(Math.abs(m.protein * 4 + m.fat * 9 + m.carbs * 4 - m.calories) < 15);
+  assert.equal(targets({ ...base, phase: 'cut' }).calories, 2210);
+  assert.ok(targets({ ...base, sex: null }).calories < m.calories);
+  assert.equal(targets({ ...base, unit: 'lb', bodyweight: 176.37 }).protein, 128);
+  for (const e of m.explanations) for (const r of e.refIds) assert.ok(REFERENCES[r]);
+});

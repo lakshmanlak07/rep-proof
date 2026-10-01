@@ -13,6 +13,8 @@ create table public.profiles (
   days int not null check (days between 2 and 6),
   session_minutes int not null check (session_minutes between 20 and 180),
   bodyweight numeric not null check (bodyweight > 0),
+  height_cm numeric not null check (height_cm between 100 and 250),
+  nutrition_phase text not null default 'maintain' check (nutrition_phase in ('gain', 'maintain', 'cut')),
   sex text check (sex in ('male', 'female')), -- null = prefer not to say
   unit text not null default 'kg' check (unit in ('kg', 'lb')),
   avoid text[] not null default '{}',
