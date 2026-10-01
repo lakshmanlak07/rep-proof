@@ -1,0 +1,63 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
+import * as WebBrowser from 'expo-web-browser';
+import { useState } from 'react';
+import { Modal, Pressable, View } from 'react-native';
+
+import { REFERENCES } from '@/engine/references.ts';
+import type { EvidenceLabel, Explanation } from '@/engine/types.ts';
+import { track } from '@/lib/data';
+import { Button, C, Card, T } from '@/ui';
+
+export const LABELS: Record<EvidenceLabel, { title: string; hint: string; color: string }> = {
+  direct: { title: 'Direct evidence', hint: 'A study tested this specific thing.', color: '#5BD6A0' },
+  principle: { title: 'Principle-based', hint: 'No study on this exact item, but it follows a studied principle.', color: '#7DB7FF' },
+  rule: { title: 'RepProof rule', hint: 'Our design choice. No direct study, and we say so.', color: '#C9B6FF' },
+};
+
+export function Badge({ label }: { label: EvidenceLabel }) {
+  const l = LABELS[label];
+  return (
+    <View style={{ alignSelf: 'flex-start', borderRadius: 999, borderWidth: 1, borderColor: l.color, paddingHorizontal: 10, paddingVertical: 3 }}>
+      <T size="sm" style={{ color: l.color }} bold>{l.title}</T>
+    </View>
+  );
+}
+
+export function WhyBody({ e }: { e: Explanation }) {
+  return (
+    <View style={{ gap: 10 }}>
+      <Badge label={e.label} />
+      <T>{e.text}</T>
+      <T muted size="sm">{LABELS[e.label].hint}</T>
+      {e.refIds.map((id) => {
+        const r = REFERENCES[id];
+        return (
+          <Pressable key={id} disabled={!r.doi} onPress={() => WebBrowser.openBrowserAsync(`https://doi.org/${r.doi}`)}>
+            <T size="sm" style={{ color: r.doi ? C.accent : C.muted }}>{r.citation}{r.doi ? ' Open study' : ''}</T>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** "why?" icon; highlighted when the suggestion changed since last time. */
+export function Why({ e, changed }: { e: Explanation; changed?: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Pressable accessibilityRole="button" accessibilityLabel="Why?" hitSlop={12}
+        onPress={() => { setOpen(true); track('why_opened', { label: e.label }); }}>
+        <Ionicons name="help-circle" size={26} color={changed ? C.accent : C.muted} />
+      </Pressable>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setOpen(false)} />
+        <Card style={{ borderRadius: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 }}>
+          <T size="lg">Why?</T>
+          <WhyBody e={e} />
+          <Button title="Got it" onPress={() => setOpen(false)} />
+        </Card>
+      </Modal>
+    </>
+  );
+}

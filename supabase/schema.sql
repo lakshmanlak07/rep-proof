@@ -36,6 +36,7 @@ create table public.workouts (
   user_id uuid not null references auth.users on delete cascade default auth.uid(),
   program_id uuid not null references public.programs on delete cascade,
   day_index int not null,
+  day_name text not null,
   checkin jsonb, -- {sleep, soreness, energy}; null = skipped
   started_at timestamptz not null default now(),
   finished_at timestamptz

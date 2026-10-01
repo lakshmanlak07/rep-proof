@@ -1,3 +1,4 @@
+/// <reference types="node" />
 // Run: npm test   (Node's built-in runner; strips types natively)
 import assert from 'node:assert/strict';
 import { test } from 'node:test';

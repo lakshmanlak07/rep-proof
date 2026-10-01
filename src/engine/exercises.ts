@@ -90,6 +90,19 @@ export const EXERCISES: Exercise[] = [
 
 export const EXERCISE_BY_ID: Record<string, Exercise> = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));
 
+// Movements a user can tick to avoid (onboarding + pain button).
+export const AVOIDABLE: { pattern: Pattern; label: string }[] = [
+  { pattern: 'vertical_push', label: 'Overhead pressing' },
+  { pattern: 'horizontal_push', label: 'Bench and chest pressing' },
+  { pattern: 'fly', label: 'Chest flys' },
+  { pattern: 'squat', label: 'Squats and leg press' },
+  { pattern: 'lunge', label: 'Lunges and split squats' },
+  { pattern: 'hinge', label: 'Hip hinges (Romanian deadlifts)' },
+  { pattern: 'hip_thrust', label: 'Hip thrusts' },
+  { pattern: 'horizontal_pull', label: 'Rows' },
+  { pattern: 'vertical_pull', label: 'Pulldowns' },
+];
+
 // PRD: home gym = barbell, rack, dumbbells. Bench assumed (founder to confirm).
 export const SETUP_EQUIPMENT: Record<Setup, Equipment[]> = {
   commercial: ['barbell', 'rack', 'dumbbell', 'bench', 'machine', 'cable'],

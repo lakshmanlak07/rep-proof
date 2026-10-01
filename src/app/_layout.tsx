@@ -1,18 +1,42 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+import { DataProvider, useData } from '@/lib/data';
+import { C, Loading } from '@/ui';
 
-SplashScreen.preventAutoHideAsync();
+const theme = { ...DarkTheme, colors: { ...DarkTheme.colors, background: C.bg, card: C.bg, text: C.text, primary: C.accent, border: C.border } };
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+function Routes() {
+  const { session, profile, program, loading } = useData();
+  if (loading) return <Loading />;
+  const ready = !!session && !!profile && !!program;
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
+      <Stack.Protected guard={!session}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="age" />
+        <Stack.Screen name="disclaimer" />
+        <Stack.Screen name="sign-in" />
+      </Stack.Protected>
+      <Stack.Protected guard={!!session && !ready}>
+        <Stack.Screen name="onboarding" />
+      </Stack.Protected>
+      <Stack.Protected guard={ready}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="workout" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="settings" options={{ headerShown: true, title: 'Settings' }} />
+      </Stack.Protected>
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider value={theme}>
+      <StatusBar style="light" />
+      <DataProvider>
+        <Routes />
+      </DataProvider>
     </ThemeProvider>
   );
 }
