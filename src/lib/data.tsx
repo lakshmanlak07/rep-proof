@@ -106,8 +106,13 @@ export async function track(name: string, props?: Record<string, unknown>) {
 /** Replaces the active program, keeping the user's place in the week. */
 export async function saveProgram(profile: Profile, split?: SplitId, nextDay = 0) {
   const plan = buildProgram(profile, split);
+  const next_day = nextDay % plan.days.length;
+  // One transaction via migration 2's replace_program; two steps if that migration is not applied yet.
+  const rpc = await supabase.rpc('replace_program', { p_split: plan.split, p_plan: plan, p_next_day: next_day });
+  if (!rpc.error) return;
+  if (rpc.error.code !== 'PGRST202') throw rpc.error; // PGRST202 = function not found
   ok(await supabase.from('programs').update({ active: false }).eq('active', true));
-  ok(await supabase.from('programs').insert({ split: plan.split, plan, next_day: nextDay % plan.days.length }));
+  ok(await supabase.from('programs').insert({ split: plan.split, plan, next_day }));
 }
 
 /** Last `n` finished sessions of an exercise, newest first. */

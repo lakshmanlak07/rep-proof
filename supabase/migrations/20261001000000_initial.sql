@@ -1,5 +1,5 @@
--- RepProof beta schema. Paste into Supabase: SQL Editor -> New query -> Run.
--- Exercises and references live in app code (src/engine), not here.
+-- Migration 1: initial RepProof schema (already applied to the beta project on 2026-10-02).
+-- New project: run every file in supabase/migrations in name order (SQL Editor, or `npx supabase db push`).
 -- Every table is locked to its owner with row-level security.
 
 create table public.profiles (
