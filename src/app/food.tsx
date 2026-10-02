@@ -1,5 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, View } from 'react-native';
 
@@ -9,6 +9,7 @@ import {
 } from '@/lib/food';
 import { alert } from '@/lib/alert';
 import { Button, C, Card, Field, s, Screen, T } from '@/ui';
+import { leave } from '@/lib/nav';
 
 export default function AddFood() {
   const { meal = 'snack' } = useLocalSearchParams<{ meal?: Meal }>();
@@ -29,8 +30,8 @@ export default function AddFood() {
       setResults(foods);
       track('food_search', { source, results: foods.length });
       if (source === 'barcode' && foods.length === 1) pick(foods[0]);
-    } catch {
-      alert('Search failed', 'Check your connection and try again.');
+    } catch (e) {
+      alert('Search failed', e instanceof Error ? e.message : 'Try again.');
     }
     setBusy(false);
   }
@@ -41,16 +42,17 @@ export default function AddFood() {
   }
 
   async function add() {
+    if (!picked) return;
     const g = Number(grams);
-    await addLogs(meal, [{ fdc_id: picked!.fdcId, name: picked!.name, grams: g, ...forGrams(picked!.per100, g) }]);
+    await addLogs(meal, [{ fdc_id: picked.fdcId, name: picked.name, grams: g, ...forGrams(picked.per100, g) }]);
     track('food_logged', { meal });
-    router.back();
+    leave();
   }
 
   async function addSaved(m: SavedMeal) {
     await addLogs(meal, m.items);
     track('saved_meal_used');
-    router.back();
+    leave();
   }
 
   const m = picked ? forGrams(picked.per100, Number(grams) || 0) : null;

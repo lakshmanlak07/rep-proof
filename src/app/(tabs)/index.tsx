@@ -75,7 +75,7 @@ export default function Home() {
         <T muted size="sm">NEXT WORKOUT</T>
         <T size="lg">{day.name}</T>
         {day.exercises.map((e) => (
-          <T key={e.exerciseId} muted>{e.sets} × {EXERCISE_BY_ID[e.exerciseId].name}</T>
+          <T key={e.exerciseId} muted>{e.pinnedSets ?? e.sets} × {EXERCISE_BY_ID[e.exerciseId].name}</T>
         ))}
         <Button kind="primary" title="Start workout" onPress={() => router.push('/workout')} style={{ marginTop: 6 }} />
       </Card>

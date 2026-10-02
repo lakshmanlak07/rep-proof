@@ -1,14 +1,17 @@
 import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useState } from 'react';
+import { View } from 'react-native';
 
 import { DataProvider, useData } from '@/lib/data';
-import { C, Loading } from '@/ui';
+import { Button, C, Loading, Screen, T } from '@/ui';
 
 const theme = { ...DarkTheme, colors: { ...DarkTheme.colors, background: C.bg, card: C.bg, text: C.text, primary: C.accent, border: C.border } };
 
 function Routes() {
-  const { session, profile, program, loading } = useData();
+  const { session, profile, program, loading, failed, refresh } = useData();
   if (loading) return <Loading />;
+  if (failed && session && !profile) return <Offline onRetry={refresh} />;
   const ready = !!session && !!profile && !!program;
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
@@ -29,6 +32,19 @@ function Routes() {
         <Stack.Screen name="science" options={{ headerShown: true, title: 'The science' }} />
       </Stack.Protected>
     </Stack>
+  );
+}
+
+function Offline({ onRetry }: { onRetry: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Screen scroll={false}>
+      <View style={{ flex: 1, justifyContent: 'center', gap: 12 }}>
+        <T size="lg">{"Can't reach RepProof"}</T>
+        <T muted>Check your connection and try again. Nothing has been lost.</T>
+      </View>
+      <Button kind="primary" title="Try again" loading={busy} onPress={async () => { setBusy(true); await onRetry(); setBusy(false); }} />
+    </Screen>
   );
 }
 

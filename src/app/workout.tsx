@@ -1,7 +1,6 @@
 import 'expo-sqlite/localStorage/install';
 
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, TextInput, View } from 'react-native';
 
 import { EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
@@ -15,6 +14,7 @@ import {
 import { Button, C, Card, Choice, Loading, s, Screen, T } from '@/ui';
 import { alert } from '@/lib/alert';
 import { Why } from '@/why';
+import { leave } from '@/lib/nav';
 
 type Row = { weight: string; reps: string; rir: string; done: boolean };
 type Item = {
@@ -26,7 +26,7 @@ type Item = {
   changed: boolean;
   sets: Row[];
 };
-type Draft = { dayIndex: number; startedAt: string; checkin: CheckIn | null; items: Item[] };
+type Draft = { userId: string; dayIndex: number; startedAt: string; checkin: CheckIn | null; items: Item[] };
 type Summary = { sets: number; prs: string[]; next: { name: string; text: string }[]; cooldown: string[] };
 
 const KEY = 'draft_workout';
@@ -39,8 +39,13 @@ const restUntil = (compound: boolean) => Date.now() + 1000 * (compound ? REST.co
 const clock = () => Date.now();
 
 export default function Workout() {
-  const { profile, program, refresh } = useData();
-  const [draft, setDraft] = useState<Draft | null>(loadDraft);
+  const { session, profile, program, refresh } = useData();
+  // A draft belongs to the account that started it (several accounts can share a phone).
+  const [draft, setDraft] = useState<Draft | null>(() => {
+    const d = loadDraft();
+    return d && d.userId === session?.user.id ? d : null;
+  });
+  const finishing = useRef(false);
   const [checkin, setCheckin] = useState<CheckIn>({ sleep: 3, soreness: 3, energy: 3 });
   const [busy, setBusy] = useState(false);
   const [restEnd, setRestEnd] = useState<number | null>(null);
@@ -90,7 +95,7 @@ export default function Workout() {
     }
     try {
       const items = await Promise.all(day.exercises.map((p) => buildItem(p, p.exerciseId, badDay)));
-      setDraft({ dayIndex, startedAt: new Date().toISOString(), checkin: c, items });
+      setDraft({ userId: session!.user.id, dayIndex, startedAt: new Date().toISOString(), checkin: c, items });
     } catch {
       alert('Could not load your history', 'Check your connection and try again.');
     }
@@ -100,7 +105,8 @@ export default function Workout() {
   const update = (i: number, fn: (it: Item) => Item) => setDraft((d) => d && { ...d, items: d.items.map((it, k) => (k === i ? fn(it) : it)) });
 
   function logSet(i: number, j: number) {
-    const it = draft!.items[i];
+    if (!draft) return;
+    const it = draft.items[i];
     update(i, (x) => ({
       ...x,
       sets: x.sets.map((r, k) => {
@@ -122,15 +128,17 @@ export default function Workout() {
 
   async function swap(i: number, exerciseId: string) {
     setSwapFor(null);
-    const it = draft!.items[i];
+    if (!draft) return;
+    const it = draft.items[i];
     track('swap', { from: it.exerciseId, to: exerciseId });
-    const badDay = !!draft!.checkin && isBadDay(draft!.checkin);
+    const badDay = !!draft.checkin && isBadDay(draft.checkin);
     const next = await buildItem(it.planned, exerciseId, badDay);
     update(i, () => next);
   }
 
   function pain(i: number) {
-    const ex = EXERCISE_BY_ID[draft!.items[i].exerciseId];
+    if (!draft) return;
+    const ex = EXERCISE_BY_ID[draft.items[i].exerciseId];
     track('pain', { exercise: ex.id });
     alert('Stop this exercise', PAIN_MSG, [
       { text: 'Swap it', onPress: () => setSwapFor(i) },
@@ -148,7 +156,9 @@ export default function Workout() {
   }
 
   async function finish() {
-    const d = draft!;
+    if (finishing.current || !draft) return; // double tap must not save the workout twice
+    finishing.current = true;
+    const d = draft;
     const sets: DraftSet[] = d.items.flatMap((it) => it.sets.filter((r) => r.done).map((r, k) => {
       const weight = Number(r.weight) || 0;
       const reps = Number(r.reps) || 0;
@@ -178,16 +188,19 @@ export default function Workout() {
       });
     } catch {
       setBusy(false);
+      finishing.current = false;
       return alert('Not saved yet', 'Your workout is kept on this phone. Check your connection and tap Finish again.');
     }
     localStorage.removeItem(KEY);
+    setDraft(null); // saved: drop it from state too, or a later effect run would write it back
     setBusy(false);
     const trained = d.items.filter((it) => it.sets.some((r) => r.done)).map((it) => EXERCISE_BY_ID[it.exerciseId].muscle);
     setSummary({ sets: sets.length, prs, next, cooldown: cooldown(trained) });
   }
 
   function confirmFinish() {
-    const left = draft!.items.reduce((a, it) => a + it.sets.filter((r) => !r.done).length, 0);
+    if (!draft) return;
+    const left = draft.items.reduce((a, it) => a + it.sets.filter((r) => !r.done).length, 0);
     if (!left) return finish();
     alert('Finish workout?', `${left} set${left > 1 ? 's' : ''} not logged. Unlogged sets are not saved.`, [
       { text: 'Keep going', style: 'cancel' },
@@ -198,7 +211,7 @@ export default function Workout() {
   function quit() {
     alert('Discard this workout?', 'Nothing from this session will be saved.', [
       { text: 'Keep going', style: 'cancel' },
-      { text: 'Discard', style: 'destructive', onPress: () => { localStorage.removeItem(KEY); router.back(); } },
+      { text: 'Discard', style: 'destructive', onPress: () => { localStorage.removeItem(KEY); setDraft(null); leave(); } },
     ]);
   }
 
@@ -226,7 +239,7 @@ export default function Workout() {
             );
           })}
         </>) : null}
-        <Button kind="primary" title="Done" onPress={async () => { await refresh(); router.back(); }} />
+        <Button kind="primary" title="Done" onPress={async () => { await refresh(); leave(); }} />
       </Screen>
     );
   }
@@ -266,7 +279,7 @@ export default function Workout() {
         <View style={{ flex: 1 }} />
         <Button kind="primary" title="Start" loading={busy} onPress={() => start(checkin)} />
         <Button kind="ghost" title="Skip check-in" disabled={busy} onPress={() => start(null)} />
-        <Button kind="ghost" title="Back" onPress={() => router.back()} />
+        <Button kind="ghost" title="Back" onPress={() => leave()} />
       </Screen>
     );
   }
@@ -297,7 +310,7 @@ export default function Workout() {
               <Why e={it.suggestion.explanation} changed={it.changed} />
             </View>
             <T muted>
-              {w === null ? 'Calibrate: pick your starting weight' : `${w} ${unit}`} · {it.suggestion.reps}–{it.planned.repMax} reps · {it.planned.rirTarget} in reserve
+              {w === null ? 'Calibrate: pick your starting weight' : `${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`} · {it.planned.rirTarget} in reserve
             </T>
             {i === firstCompound && w !== null && ex.equipment.includes('barbell') ? (
               <View style={s.row}>

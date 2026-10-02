@@ -23,8 +23,15 @@ export function sum(rows: Macros[]): Macros {
 
 async function callFood(body: { query?: string; upc?: string }): Promise<Food[]> {
   const { data, error } = await supabase.functions.invoke('food', { body });
-  if (error) throw error;
-  return data.foods as Food[];
+  if (error) {
+    // FunctionsHttpError carries the HTTP response; network failures have none.
+    const status = (error as { context?: { status?: number } }).context?.status;
+    if (status === 404) throw new Error('Food search is not set up yet. Deploy the food function (see README).');
+    if (status === 429) throw new Error('Food search is busy right now. Try again in a minute.');
+    if (status) throw new Error('Food search had a problem. Try again shortly.');
+    throw new Error('Could not reach food search. Check your connection and try again.');
+  }
+  return (data?.foods ?? []) as Food[];
 }
 export const searchFoods = (query: string) => callFood({ query });
 export const byBarcode = (upc: string) => callFood({ upc });

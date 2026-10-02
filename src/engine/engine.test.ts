@@ -210,3 +210,12 @@ test('science library cites real references and covers all three labels', async 
   assert.deepEqual(new Set(TOPICS.map((x) => x.label)), new Set(['direct', 'principle', 'rule']));
   assert.ok(UNKNOWNS.length > 0);
 });
+
+test('pinned reps become the target: hitting them adds weight, never reads as a miss', async () => {
+  const { applyPins } = await import('./progression.ts');
+  const pinned = { ...bench, pinnedReps: 5 };
+  const hit = applyPins(suggest(pinned, [sets(3, 100, 5)], 'intermediate', 'kg'), pinned);
+  assert.deepEqual([hit.kind, hit.weight, hit.reps], ['up', 102.5, 5]);
+  const miss = suggest(pinned, [sets(3, 100, 4), sets(3, 100, 4)], 'intermediate', 'kg');
+  assert.equal(miss.kind, 'drop');
+});

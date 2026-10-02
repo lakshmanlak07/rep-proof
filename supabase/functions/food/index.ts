@@ -31,16 +31,24 @@ function normalize(f: any): Food {
   };
 }
 
+// The native app needs no CORS; the web build does.
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+const json = (body: unknown, status = 200) => Response.json(body, { status, headers: CORS });
+
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const { query, upc } = await req.json().catch(() => ({}));
   const q = String(query ?? '').trim().toLowerCase().slice(0, 100);
   const code = String(upc ?? '').replace(/\D/g, '');
-  if (!q && !code) return Response.json({ error: 'query or upc required' }, { status: 400 });
+  if (!q && !code) return json({ error: 'query or upc required' }, 400);
   const key = code ? `upc:${code}` : `q:${q}`;
 
   const cached = await admin.from('food_cache').select('results, fetched_at').eq('key', key).maybeSingle();
   if (cached.data && Date.now() - new Date(cached.data.fetched_at).getTime() < CACHE_DAYS * 864e5) {
-    return Response.json({ foods: cached.data.results });
+    return json({ foods: cached.data.results });
   }
 
   const url = new URL('https://api.nal.usda.gov/fdc/v1/foods/search');
@@ -49,7 +57,7 @@ Deno.serve(async (req) => {
   url.searchParams.set('pageSize', '25');
   url.searchParams.set('dataType', code ? 'Branded' : 'Foundation,SR Legacy,Branded');
   const res = await fetch(url);
-  if (!res.ok) return Response.json({ error: `USDA ${res.status}` }, { status: res.status === 429 ? 429 : 502 });
+  if (!res.ok) return json({ error: `USDA ${res.status}` }, res.status === 429 ? 429 : 502);
   const data = await res.json();
 
   let foods: Food[] = (data.foods ?? []).map(normalize);
@@ -58,5 +66,5 @@ Deno.serve(async (req) => {
     foods = foods.filter((_, i) => strip(String(data.foods[i].gtinUpc ?? '')) === strip(code));
   }
   await admin.from('food_cache').upsert({ key, results: foods, fetched_at: new Date().toISOString() });
-  return Response.json({ foods });
+  return json({ foods });
 });

@@ -30,7 +30,14 @@ export const toProfile = (r: ProfileRow): Profile => ({
   experience: r.experience, goal: r.goal, setup: r.setup, days: r.days, sessionMinutes: r.session_minutes, unit: r.unit, avoid: r.avoid,
 });
 
-type Ctx = { session: Session | null; profile: ProfileRow | null; program: ProgramRow | null; loading: boolean; refresh: () => Promise<void> };
+type Ctx = {
+  session: Session | null;
+  profile: ProfileRow | null;
+  program: ProgramRow | null;
+  loading: boolean;
+  failed: boolean; // last load could not reach the server; profile/program may be stale
+  refresh: () => Promise<void>;
+};
 const DataContext = createContext<Ctx>(null!);
 export const useData = () => useContext(DataContext);
 
@@ -39,6 +46,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [program, setProgram] = useState<ProgramRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async (s: Session | null) => {
     setSession(s);
@@ -50,9 +58,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
         supabase.from('profiles').select('*').eq('id', s.user.id).maybeSingle(),
         supabase.from('programs').select('id, split, plan, next_day').eq('active', true).maybeSingle(),
       ]);
+      // A failed request must never look like "no profile": that would send an existing user to onboarding.
+      if (p.error || g.error) {
+        setFailed(true);
+        setLoading(false);
+        return;
+      }
       setProfile(p.data);
       setProgram(g.data);
     }
+    setFailed(false);
     setLoading(false);
   }, []);
 
@@ -69,7 +84,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     await load(data.session);
   }, [load]);
 
-  return <DataContext.Provider value={{ session, profile, program, loading, refresh }}>{children}</DataContext.Provider>;
+  return <DataContext.Provider value={{ session, profile, program, loading, failed, refresh }}>{children}</DataContext.Provider>;
 }
 
 /** Reads: throws on error or missing data. */

@@ -23,7 +23,10 @@ export function suggest(
   experience: Experience,
   unit: Unit,
 ): Suggestion {
-  const { repMin, repMax, rirTarget, sets } = plan;
+  const { rirTarget, sets } = plan;
+  // A pinned rep count is the whole target: hitting it on every set earns more weight.
+  const repMin = plan.pinnedReps ?? plan.repMin;
+  const repMax = plan.pinnedReps ?? plan.repMax;
   const inc = INCREMENT[unit];
   const last = history[0];
 
