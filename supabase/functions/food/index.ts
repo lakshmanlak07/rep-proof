@@ -60,11 +60,31 @@ Deno.serve(async (req) => {
   if (!res.ok) return json({ error: `USDA ${res.status}` }, res.status === 429 ? 429 : 502);
   const data = await res.json();
 
-  let foods: Food[] = (data.foods ?? []).map(normalize);
+  let raw: any[] = data.foods ?? [];
   if (code) {
     const strip = (s: string) => s.replace(/^0+/, '');
-    foods = foods.filter((_, i) => strip(String(data.foods[i].gtinUpc ?? '')) === strip(code));
+    raw = raw.filter((f) => strip(String(f.gtinUpc ?? '')) === strip(code));
+  } else {
+    // Names containing every search word first, then generic before branded.
+    // Stable sort keeps USDA's relevance order inside each group.
+    const words = q.split(/\s+/).filter(Boolean);
+    const rank: Record<string, number> = { Foundation: 0, 'SR Legacy': 1, 'Survey (FNDDS)': 2 };
+    const score = (f: any) => {
+      const name = String(f.description ?? '').toLowerCase();
+      return (words.every((w) => name.includes(w)) ? 0 : 10) + (rank[f.dataType] ?? 3);
+    };
+    raw = [...raw].sort((a, b) => score(a) - score(b));
   }
+  // Branded data repeats the same product under many entries; keep one per name + brand + calories.
+  const seen = new Set<string>();
+  const foods: Food[] = raw.map(normalize).filter((f) => {
+    const { kcal, protein, fat, carbs } = f.per100;
+    if (!kcal && !protein && !fat && !carbs) return false; // entry has no nutrient data
+    const key = `${f.name.toLowerCase()}|${f.brand ?? ''}|${f.per100.kcal}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   await admin.from('food_cache').upsert({ key, results: foods, fetched_at: new Date().toISOString() });
   return json({ foods });
 });
