@@ -4,11 +4,12 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 
 - `src/engine/`: training and nutrition rules, pure TypeScript. Tests: `npm test`.
 - `src/app/`: screens. `src/lib/`: Supabase client and data access.
-- `supabase/schema.sql`: database. `supabase/functions/food/`: USDA food search proxy.
+- `supabase/migrations/`: database, versioned (run in name order). `supabase/functions/food/`: USDA food search proxy.
 
 ## Setup (Windows)
 
-1. Supabase project → SQL Editor → run `supabase/schema.sql`.
+1. Supabase project → SQL Editor → run each file in `supabase/migrations/` in name order.
+   The beta project already has `20261001000000_initial.sql`; it still needs `20261002000000_hardening.sql`.
 2. Authentication → Sign In / Providers → Email → turn off "Confirm email" (beta).
 3. Copy `.env.example` to `.env`; fill in Project URL and publishable key (Project Settings → API).
 4. Food search: get a free key at https://fdc.nal.usda.gov/api-key-signup, then:
