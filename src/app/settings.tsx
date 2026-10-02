@@ -12,7 +12,8 @@ import { Button, Card, Screen, T } from '@/ui';
 // Where the in-app feedback button sends email. Empty = button hidden.
 const FEEDBACK_EMAIL = '';
 
-const clearLocal = () => localStorage.removeItem('draft_workout');
+// Everything this device keeps between sessions (see workout.tsx and lib/pending.ts).
+const clearLocal = () => ['draft_workout', 'missed_choice', 'pending_onboarding'].forEach((k) => localStorage.removeItem(k));
 
 export default function Settings() {
   const { session, profile } = useData();
@@ -25,7 +26,8 @@ export default function Settings() {
           const { error } = await supabase.rpc('delete_account');
           if (error) return alert('Could not delete', error.message);
           clearLocal();
-          await supabase.auth.signOut();
+          // The account no longer exists server-side, so only clear this device's session.
+          await supabase.auth.signOut({ scope: 'local' });
         },
       },
     ]);

@@ -1,12 +1,13 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
 import { MUSCLES } from '@/engine/plan.ts';
 import type { Muscle } from '@/engine/types.ts';
 import { localDate, must, ok, startOfWeek, track, useData } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
+import { attempt } from '@/lib/alert';
 import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
 
 type Workout = { id: string; day_name: string; finished_at: string; logged_sets: { count: number }[] };
@@ -18,6 +19,7 @@ const CARDIO_KINDS = ['Walk', 'Run', 'Bike', 'Row', 'Other'];
 export default function Progress() {
   const { profile } = useData();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [sets, setSets] = useState<SetRow[]>([]);
   const [lift, setLift] = useState<string | null>(null);
   const [cardio, setCardio] = useState<Cardio[]>([]);
@@ -36,10 +38,17 @@ export default function Progress() {
     setCardio(c as Cardio[]);
   }, []);
 
-  useFocusEffect(useCallback(() => { load().catch(() => setWorkouts([])); }, [load]));
+  const reload = useCallback(() => {
+    setLoadFailed(false);
+    load().catch(() => setLoadFailed(true));
+  }, [load]);
+  useFocusEffect(reload);
 
   async function addCardio() {
-    ok(await supabase.from('cardio_logs').insert({ kind, minutes: Number(minutes), intensity, logged_on: localDate() }));
+    const saved = await attempt(async () => {
+      ok(await supabase.from('cardio_logs').insert({ kind, minutes: Number(minutes), intensity, logged_on: localDate() }));
+    }, 'log your cardio');
+    if (!saved) return;
     track('cardio_logged', { kind, intensity });
     setMinutes('');
     await load();
@@ -75,6 +84,12 @@ export default function Progress() {
   return (
     <Screen edges={['top']}>
       <T size="xl">Progress</T>
+      {loadFailed ? (
+        <Card>
+          <T>Could not load your progress.</T>
+          <Button title="Try again" onPress={reload} />
+        </Card>
+      ) : workouts === null ? <ActivityIndicator color={C.accent} /> : null}
       {workouts && !workouts.length ? <T muted>Finish your first workout to see it here.</T> : null}
 
       {shown ? (

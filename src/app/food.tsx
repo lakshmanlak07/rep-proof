@@ -7,7 +7,7 @@ import { track } from '@/lib/data';
 import {
   addLogs, byBarcode, deleteSavedMeal, forGrams, savedMeals, searchFoods, type Food, type Meal, type SavedMeal,
 } from '@/lib/food';
-import { alert } from '@/lib/alert';
+import { alert, attempt } from '@/lib/alert';
 import { Button, C, Card, Field, s, Screen, T } from '@/ui';
 import { leave } from '@/lib/nav';
 
@@ -44,13 +44,14 @@ export default function AddFood() {
   async function add() {
     if (!picked) return;
     const g = Number(grams);
-    await addLogs(meal, [{ fdc_id: picked.fdcId, name: picked.name, grams: g, ...forGrams(picked.per100, g) }]);
+    const food = picked;
+    if (!(await attempt(() => addLogs(meal, [{ fdc_id: food.fdcId, name: food.name, grams: g, ...forGrams(food.per100, g) }]), 'add that food'))) return;
     track('food_logged', { meal });
     leave();
   }
 
   async function addSaved(m: SavedMeal) {
-    await addLogs(meal, m.items);
+    if (!(await attempt(() => addLogs(meal, m.items), 'add that meal'))) return;
     track('saved_meal_used');
     leave();
   }
@@ -77,7 +78,7 @@ export default function AddFood() {
               <T bold>{sm.name}</T>
               <T muted size="sm">{sm.items.length} items · {Math.round(sm.items.reduce((a, x) => a + Number(x.kcal), 0))} kcal</T>
             </Pressable>
-            <Button kind="ghost" title="Delete" onPress={() => deleteSavedMeal(sm.id).then(() => savedMeals().then(setSaved))} />
+            <Button kind="ghost" title="Delete" onPress={() => attempt(() => deleteSavedMeal(sm.id), 'delete that meal').then(() => savedMeals().then(setSaved).catch(() => {}))} />
           </Card>
         ))}
       </>) : null}

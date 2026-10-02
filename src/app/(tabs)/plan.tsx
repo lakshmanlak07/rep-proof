@@ -7,7 +7,7 @@ import { MUSCLES, recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.
 import type { PlannedExercise, SplitId } from '@/engine/types.ts';
 import { isDeload, localDate, saveProgram, toProfile, track, updatePlan, updateProfile, useData } from '@/lib/data';
 import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
-import { alert } from '@/lib/alert';
+import { alert, attempt } from '@/lib/alert';
 import { WhyBody } from '@/why';
 
 export default function Plan() {
@@ -19,14 +19,14 @@ export default function Plan() {
   const deload = isDeload(profile.deload_until);
 
   function toggleDeload() {
-    if (deload) return updateProfile(profile!.id, { deload_until: null }).then(refresh);
+    if (deload) return attempt(() => updateProfile(profile!.id, { deload_until: null }), 'end the deload').then(refresh);
     alert('Start a deload?', 'For the next 7 days: half the sets, same weights.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Start deload', onPress: async () => {
           const end = new Date();
           end.setDate(end.getDate() + 6);
-          await updateProfile(profile!.id, { deload_until: localDate(end) });
+          if (!(await attempt(() => updateProfile(profile!.id, { deload_until: localDate(end) }), 'start the deload'))) return;
           track('deload', { trigger: 'user' });
           await refresh();
         },
@@ -36,9 +36,12 @@ export default function Plan() {
 
   async function saveSchedule() {
     const { days, split } = schedule!;
-    await updateProfile(profile!.id, { days });
-    // Logged weights carry over: suggestions read history by exercise, not by program.
-    await saveProgram(toProfile({ ...profile!, days }), split, 0);
+    const saved = await attempt(async () => {
+      await updateProfile(profile!.id, { days });
+      // Logged weights carry over: suggestions read history by exercise, not by program.
+      await saveProgram(toProfile({ ...profile!, days }), split, 0);
+    }, 'rebuild your plan');
+    if (!saved) return;
     track('schedule_changed', { days, split });
     setSchedule(null);
     await refresh();
@@ -49,7 +52,7 @@ export default function Plan() {
     const days = plan.days.map((d, i) => i !== day ? d : {
       ...d, exercises: d.exercises.map((e, k) => (k === ex ? { ...e, pinnedSets: pin.pinnedSets, pinnedReps: pin.pinnedReps } : e)),
     });
-    await updatePlan(program!.id, { ...plan, days });
+    if (!(await attempt(() => updatePlan(program!.id, { ...plan, days }), 'save the pin'))) return;
     track('pin', { set: pin.pinnedSets !== undefined || pin.pinnedReps !== undefined });
     setEditing(null);
     await refresh();

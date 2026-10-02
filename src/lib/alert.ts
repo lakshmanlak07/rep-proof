@@ -17,3 +17,14 @@ export function alert(title: string, message?: string, buttons?: AlertButton[]) 
     if (window.confirm(`${text}\n\n${b.text}?`)) return b.onPress?.();
   }
 }
+
+/** Runs a save; on failure tells the user instead of failing silently. Returns whether it worked. */
+export async function attempt(fn: () => Promise<unknown>, what = 'save that'): Promise<boolean> {
+  try {
+    await fn();
+    return true;
+  } catch {
+    alert(`Could not ${what}`, 'Check your connection and try again.');
+    return false;
+  }
+}

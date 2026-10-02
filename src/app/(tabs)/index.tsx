@@ -9,6 +9,7 @@ import type { Explanation } from '@/engine/types.ts';
 import { daysSince, isDeload, localDate, recentWorkouts, startOfWeek, track, updateProfile, useData } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Card, s, Screen, T } from '@/ui';
+import { attempt } from '@/lib/alert';
 import { Why } from '@/why';
 
 export default function Home() {
@@ -29,7 +30,7 @@ export default function Home() {
   async function acceptDeload() {
     const end = new Date();
     end.setDate(end.getDate() + 6);
-    await updateProfile(profile!.id, { deload_until: localDate(end) });
+    if (!(await attempt(() => updateProfile(profile!.id, { deload_until: localDate(end) }), 'start the deload'))) return;
     track('deload', { trigger: 'offer' });
     await refresh();
   }

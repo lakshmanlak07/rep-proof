@@ -6,7 +6,7 @@ import { NUTRITION_CARDS, targets, type Phase } from '@/engine/nutrition.ts';
 import { track, updateProfile, useData } from '@/lib/data';
 import { dayLogs, deleteLog, MEALS, saveMeal, sum, type FoodLog, type Meal } from '@/lib/food';
 import { Button, C, Card, Choice, s, Screen, T } from '@/ui';
-import { alert } from '@/lib/alert';
+import { alert, attempt } from '@/lib/alert';
 import { Why, WhyBody } from '@/why';
 
 const MEAL_NAMES: Record<Meal, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks' };
@@ -26,7 +26,7 @@ export default function Nutrition() {
   const eaten = sum(logs);
 
   async function setPhase(phase: Phase) {
-    await updateProfile(profile!.id, { nutrition_phase: phase });
+    if (!(await attempt(() => updateProfile(profile!.id, { nutrition_phase: phase }), 'change the phase'))) return;
     track('nutrition_phase', { phase });
     await refresh();
   }
@@ -34,13 +34,13 @@ export default function Nutrition() {
   function remove(l: FoodLog) {
     alert('Remove this food?', l.name, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => deleteLog(l.id).then(load) },
+      { text: 'Remove', style: 'destructive', onPress: () => attempt(() => deleteLog(l.id), 'remove that food').then(load) },
     ]);
   }
 
   async function save(meal: Meal, items: FoodLog[]) {
     const name = `${MEAL_NAMES[meal]}, ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-    await saveMeal(name, items);
+    if (!(await attempt(() => saveMeal(name, items), 'save the meal'))) return;
     track('meal_saved');
     alert('Saved', `"${name}" is in Saved meals when you add food.`);
   }

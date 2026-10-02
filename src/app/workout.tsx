@@ -12,7 +12,7 @@ import {
   bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updateProfile, useData, type DraftSet,
 } from '@/lib/data';
 import { Button, C, Card, Choice, Loading, s, Screen, T } from '@/ui';
-import { alert } from '@/lib/alert';
+import { alert, attempt } from '@/lib/alert';
 import { Why } from '@/why';
 import { leave } from '@/lib/nav';
 
@@ -145,8 +145,11 @@ export default function Workout() {
       {
         text: 'Avoid this movement', onPress: async () => {
           const avoid = [...new Set([...profile!.avoid, ex.pattern])];
-          await updateProfile(profile!.id, { avoid });
-          await saveProgram(toProfile({ ...profile!, avoid }), program!.split, program!.next_day);
+          const saved = await attempt(async () => {
+            await updateProfile(profile!.id, { avoid });
+            await saveProgram(toProfile({ ...profile!, avoid }), program!.split, program!.next_day);
+          }, 'update your plan');
+          if (!saved) return;
           setDraft((d) => d && { ...d, items: d.items.filter((_, k) => k !== i) });
           await refresh(); // new active program; finish() updates its next_day
         },
