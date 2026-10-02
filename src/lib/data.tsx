@@ -72,10 +72,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
   return <DataContext.Provider value={{ session, profile, program, loading, refresh }}>{children}</DataContext.Provider>;
 }
 
+/** Reads: throws on error or missing data. */
 const must = <T,>({ data, error }: { data: T; error: unknown }): NonNullable<T> => {
   if (error) throw error;
-  if (data == null) throw new Error("No data returned");
+  if (data == null) throw new Error('No data returned');
   return data as NonNullable<T>;
+};
+
+/** Writes (insert/update/upsert/delete without select): throws on error only. */
+const ok = ({ error }: { error: unknown }) => {
+  if (error) throw error;
 };
 
 export async function track(name: string, props?: Record<string, unknown>) {
@@ -85,8 +91,8 @@ export async function track(name: string, props?: Record<string, unknown>) {
 /** Replaces the active program, keeping the user's place in the week. */
 export async function saveProgram(profile: Profile, split?: SplitId, nextDay = 0) {
   const plan = buildProgram(profile, split);
-  must(await supabase.from('programs').update({ active: false }).eq('active', true));
-  must(await supabase.from('programs').insert({ split: plan.split, plan, next_day: nextDay % plan.days.length }));
+  ok(await supabase.from('programs').update({ active: false }).eq('active', true));
+  ok(await supabase.from('programs').insert({ split: plan.split, plan, next_day: nextDay % plan.days.length }));
 }
 
 /** Last `n` finished sessions of an exercise, newest first. */
@@ -125,16 +131,16 @@ export async function saveWorkout(w: {
     program_id: w.programId, day_index: w.dayIndex, day_name: w.dayName, checkin: w.checkin, perf_drops: w.perfDrops, started_at: w.startedAt, finished_at: new Date().toISOString(),
   }).select('id').single());
   if (w.sets.length) {
-    must(await supabase.from('logged_sets').insert(w.sets.map((x) => ({
+    ok(await supabase.from('logged_sets').insert(w.sets.map((x) => ({
       workout_id: workout.id, exercise_id: x.exerciseId, set_index: x.setIndex, weight: x.weight, reps: x.reps, rir: x.rir, overridden: x.overridden,
     }))));
   }
-  must(await supabase.from('programs').update({ next_day: (w.dayIndex + 1) % w.daysInPlan }).eq('id', w.programId));
+  ok(await supabase.from('programs').update({ next_day: (w.dayIndex + 1) % w.daysInPlan }).eq('id', w.programId));
   track('workout_finished', { sets: w.sets.length, checkin: !!w.checkin });
 }
 
 export async function updatePlan(programId: string, plan: Program) {
-  must(await supabase.from('programs').update({ plan }).eq('id', programId));
+  ok(await supabase.from('programs').update({ plan }).eq('id', programId));
 }
 
 /** Last finished workouts, newest first: for missed-session and deload checks. */
@@ -147,10 +153,10 @@ export async function recentWorkouts(n = 4) {
 export const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 864e5);
 
 export async function updateProfile(id: string, patch: Partial<ProfileRow>) {
-  must(await supabase.from('profiles').update(patch).eq('id', id));
+  ok(await supabase.from('profiles').update(patch).eq('id', id));
 }
 
-export { must };
+export { must, ok };
 
 /** Local calendar date, YYYY-MM-DD. */
 export function localDate(d = new Date()) {

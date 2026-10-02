@@ -1,12 +1,13 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, View } from 'react-native';
 
 import { track } from '@/lib/data';
 import {
   addLogs, byBarcode, deleteSavedMeal, forGrams, savedMeals, searchFoods, type Food, type Meal, type SavedMeal,
 } from '@/lib/food';
+import { alert } from '@/lib/alert';
 import { Button, C, Card, Field, s, Screen, T } from '@/ui';
 
 export default function AddFood() {
@@ -29,7 +30,7 @@ export default function AddFood() {
       track('food_search', { source, results: foods.length });
       if (source === 'barcode' && foods.length === 1) pick(foods[0]);
     } catch {
-      Alert.alert('Search failed', 'Check your connection and try again.');
+      alert('Search failed', 'Check your connection and try again.');
     }
     setBusy(false);
   }

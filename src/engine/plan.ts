@@ -74,21 +74,30 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   const pool = available(profile.setup, profile.avoid);
   const trainable = MUSCLES.filter((m) => pool.some((e) => e.muscle === m));
   const base = BASE_WEEKLY_SETS[profile.experience];
-  const weeklyCap = profile.days * Math.floor(profile.sessionMinutes / MINUTES_PER_SET);
-  const scale = Math.min(1, weeklyCap / (base * trainable.length));
-  const weeklySets: Partial<Record<Muscle, number>> = {};
-  for (const m of trainable) {
-    // At most 2 exercises x 5 sets per muscle per session; fewer when the pool has one exercise.
-    const perSessionMax = 5 * Math.min(2, pool.filter((e) => e.muscle === m).length);
-    weeklySets[m] = Math.min(frequency[m] * perSessionMax, Math.max(frequency[m], Math.floor(base * scale)));
-  }
+  const sessionCap = Math.floor(profile.sessionMinutes / MINUTES_PER_SET);
+  const volumeFor = (target: number) => {
+    const w: Partial<Record<Muscle, number>> = {};
+    for (const m of trainable) {
+      // At most 2 exercises x 5 sets per muscle per session; fewer when the pool has one exercise.
+      const perSessionMax = 5 * Math.min(2, pool.filter((e) => e.muscle === m).length);
+      w[m] = Math.min(frequency[m] * perSessionMax, Math.max(frequency[m], target));
+    }
+    return w;
+  };
+  // Busiest day of the week, in sets: each muscle's weekly sets split across its sessions (rounded up).
+  const busiestDay = (w: Partial<Record<Muscle, number>>) =>
+    Math.max(...dayTemplates.map((d) => d.muscles.reduce((a, m) => a + (w[m] ? Math.ceil(w[m]! / frequency[m]) : 0), 0)));
+  // Lower the weekly target until every single session fits the time limit.
+  let target = base;
+  while (target > 1 && busiestDay(volumeFor(target)) > sessionCap) target--;
+  const weeklySets = volumeFor(target);
 
   explanations.push({
     text: `Starting at about ${base} hard sets per muscle per week for your experience level. More weekly sets tends to mean more growth, but no study has found one best number, so the exact start is our choice.`,
     label: 'principle',
     refIds: ['volume_dose'],
   });
-  if (scale < 1) {
+  if (target < base) {
     explanations.push({
       text: `Trimmed to ${weeklySets[trainable[0]]} sets per muscle so each session fits in ${profile.sessionMinutes} minutes (about ${MINUTES_PER_SET} minutes per set including rest).`,
       label: 'rule',

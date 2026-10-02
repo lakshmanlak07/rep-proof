@@ -5,7 +5,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
 import { MUSCLES } from '@/engine/plan.ts';
 import type { Muscle } from '@/engine/types.ts';
-import { localDate, must, startOfWeek, track, useData } from '@/lib/data';
+import { localDate, must, ok, startOfWeek, track, useData } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
 
@@ -39,7 +39,7 @@ export default function Progress() {
   useFocusEffect(useCallback(() => { load().catch(() => setWorkouts([])); }, [load]));
 
   async function addCardio() {
-    must(await supabase.from('cardio_logs').insert({ kind, minutes: Number(minutes), intensity, logged_on: localDate() }));
+    ok(await supabase.from('cardio_logs').insert({ kind, minutes: Number(minutes), intensity, logged_on: localDate() }));
     track('cardio_logged', { kind, intensity });
     setMinutes('');
     await load();

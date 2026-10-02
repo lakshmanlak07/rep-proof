@@ -1,11 +1,12 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 import { NUTRITION_CARDS, targets, type Phase } from '@/engine/nutrition.ts';
 import { track, updateProfile, useData } from '@/lib/data';
 import { dayLogs, deleteLog, MEALS, saveMeal, sum, type FoodLog, type Meal } from '@/lib/food';
 import { Button, C, Card, Choice, s, Screen, T } from '@/ui';
+import { alert } from '@/lib/alert';
 import { Why, WhyBody } from '@/why';
 
 const MEAL_NAMES: Record<Meal, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks' };
@@ -31,7 +32,7 @@ export default function Nutrition() {
   }
 
   function remove(l: FoodLog) {
-    Alert.alert('Remove this food?', l.name, [
+    alert('Remove this food?', l.name, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => deleteLog(l.id).then(load) },
     ]);
@@ -41,7 +42,7 @@ export default function Nutrition() {
     const name = `${MEAL_NAMES[meal]}, ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
     await saveMeal(name, items);
     track('meal_saved');
-    Alert.alert('Saved', `"${name}" is in Saved meals when you add food.`);
+    alert('Saved', `"${name}" is in Saved meals when you add food.`);
   }
 
   const bar = (label: string, have: number, goal: number, unit: string) => (

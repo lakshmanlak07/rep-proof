@@ -41,7 +41,7 @@ export default function Science() {
         );
       })}
 
-      <T size="lg">What we don't know yet</T>
+      <T size="lg">{"What we don't know yet"}</T>
       <Card>
         {UNKNOWNS.map((u) => <T key={u} muted>• {u}</T>)}
       </Card>

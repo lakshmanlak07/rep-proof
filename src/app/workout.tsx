@@ -2,7 +2,7 @@ import 'expo-sqlite/localStorage/install';
 
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, TextInput, View } from 'react-native';
+import { Modal, Pressable, TextInput, View } from 'react-native';
 
 import { EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
 import { REST_WHY } from '@/engine/plan.ts';
@@ -13,6 +13,7 @@ import {
   bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updateProfile, useData, type DraftSet,
 } from '@/lib/data';
 import { Button, C, Card, Choice, Loading, s, Screen, T } from '@/ui';
+import { alert } from '@/lib/alert';
 import { Why } from '@/why';
 
 type Row = { weight: string; reps: string; rir: string; done: boolean };
@@ -33,6 +34,9 @@ const MISSED_KEY = 'missed_choice'; // last answer to the missed-session prompt
 const loadDraft = (): Draft | null => { try { return JSON.parse(localStorage.getItem(KEY) ?? 'null'); } catch { return null; } };
 const PAIN_MSG = "Pain isn't something RepProof can assess. Stop the exercise and consider seeing a qualified professional.";
 const REST = { compound: 150, isolation: 90 }; // seconds; PRD defaults
+// Outside components: clock reads happen in event handlers and intervals, never during render.
+const restUntil = (compound: boolean) => Date.now() + 1000 * (compound ? REST.compound : REST.isolation);
+const clock = () => Date.now();
 
 export default function Workout() {
   const { profile, program, refresh } = useData();
@@ -88,7 +92,7 @@ export default function Workout() {
       const items = await Promise.all(day.exercises.map((p) => buildItem(p, p.exerciseId, badDay)));
       setDraft({ dayIndex, startedAt: new Date().toISOString(), checkin: c, items });
     } catch {
-      Alert.alert('Could not load your history', 'Check your connection and try again.');
+      alert('Could not load your history', 'Check your connection and try again.');
     }
     setBusy(false);
   }
@@ -106,7 +110,7 @@ export default function Workout() {
         return r;
       }),
     }));
-    if (!it.sets[j].done) setRestEnd(Date.now() + 1000 * (EXERCISE_BY_ID[it.exerciseId].compound ? REST.compound : REST.isolation));
+    if (!it.sets[j].done) setRestEnd(restUntil(EXERCISE_BY_ID[it.exerciseId].compound));
   }
 
   const move = (i: number, by: -1 | 1) => setDraft((d) => {
@@ -128,7 +132,7 @@ export default function Workout() {
   function pain(i: number) {
     const ex = EXERCISE_BY_ID[draft!.items[i].exerciseId];
     track('pain', { exercise: ex.id });
-    Alert.alert('Stop this exercise', PAIN_MSG, [
+    alert('Stop this exercise', PAIN_MSG, [
       { text: 'Swap it', onPress: () => setSwapFor(i) },
       {
         text: 'Avoid this movement', onPress: async () => {
@@ -174,7 +178,7 @@ export default function Workout() {
       });
     } catch {
       setBusy(false);
-      return Alert.alert('Not saved yet', 'Your workout is kept on this phone. Check your connection and tap Finish again.');
+      return alert('Not saved yet', 'Your workout is kept on this phone. Check your connection and tap Finish again.');
     }
     localStorage.removeItem(KEY);
     setBusy(false);
@@ -185,14 +189,14 @@ export default function Workout() {
   function confirmFinish() {
     const left = draft!.items.reduce((a, it) => a + it.sets.filter((r) => !r.done).length, 0);
     if (!left) return finish();
-    Alert.alert('Finish workout?', `${left} set${left > 1 ? 's' : ''} not logged. Unlogged sets are not saved.`, [
+    alert('Finish workout?', `${left} set${left > 1 ? 's' : ''} not logged. Unlogged sets are not saved.`, [
       { text: 'Keep going', style: 'cancel' },
       { text: 'Finish', onPress: finish },
     ]);
   }
 
   function quit() {
-    Alert.alert('Discard this workout?', 'Nothing from this session will be saved.', [
+    alert('Discard this workout?', 'Nothing from this session will be saved.', [
       { text: 'Keep going', style: 'cancel' },
       { text: 'Discard', style: 'destructive', onPress: () => { localStorage.removeItem(KEY); router.back(); } },
     ]);
@@ -355,9 +359,9 @@ export default function Workout() {
 }
 
 function RestTimer({ end, onDone }: { end: number; onDone: () => void }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(clock);
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 500);
+    const t = setInterval(() => setNow(clock()), 500);
     return () => clearInterval(t);
   }, []);
   const left = Math.max(0, Math.ceil((end - now) / 1000));

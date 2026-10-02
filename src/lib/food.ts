@@ -1,4 +1,4 @@
-import { localDate, must } from './data';
+import { localDate, must, ok } from './data';
 import { supabase } from './supabase';
 
 // Shape returned by the `food` edge function (USDA values per 100 g).
@@ -35,11 +35,11 @@ export async function dayLogs(day = localDate()): Promise<FoodLog[]> {
 }
 
 export async function addLogs(meal: Meal, items: Omit<FoodLog, 'id' | 'meal'>[], day = localDate()) {
-  must(await supabase.from('food_logs').insert(items.map((x) => ({ ...x, meal, logged_on: day }))));
+  ok(await supabase.from('food_logs').insert(items.map((x) => ({ ...x, meal, logged_on: day }))));
 }
 
 export async function deleteLog(id: string) {
-  must(await supabase.from('food_logs').delete().eq('id', id));
+  ok(await supabase.from('food_logs').delete().eq('id', id));
 }
 
 export async function savedMeals(): Promise<SavedMeal[]> {
@@ -48,9 +48,9 @@ export async function savedMeals(): Promise<SavedMeal[]> {
 
 export async function saveMeal(name: string, logs: FoodLog[]) {
   const items = logs.map(({ fdc_id, name, grams, kcal, protein, fat, carbs }) => ({ fdc_id, name, grams, kcal, protein, fat, carbs }));
-  must(await supabase.from('saved_meals').insert({ name, items }));
+  ok(await supabase.from('saved_meals').insert({ name, items }));
 }
 
 export async function deleteSavedMeal(id: string) {
-  must(await supabase.from('saved_meals').delete().eq('id', id));
+  ok(await supabase.from('saved_meals').delete().eq('id', id));
 }

@@ -36,6 +36,9 @@ test('every profile combination builds a valid program', () => {
               assert.ok(e.sets >= 1 && e.sets <= 5, `${ex.id} has ${e.sets} sets`);
               assert.ok(e.repMin >= 5 && e.repMax <= 12);
             }
+            const total = d.exercises.reduce((n, e) => n + e.sets, 0);
+            const floor = d.exercises.length; // 1 set per exercise is the minimum
+            assert.ok(total <= Math.max(floor, Math.floor(sessionMinutes / 3)), `${days}d ${sessionMinutes}min ${d.name}: ${total} sets`);
             const ids = d.exercises.map((e) => e.exerciseId);
             assert.equal(new Set(ids).size, ids.length, 'duplicate exercise in one day');
           }

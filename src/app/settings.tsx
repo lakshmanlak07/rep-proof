@@ -1,11 +1,12 @@
 import 'expo-sqlite/localStorage/install';
 
 import { router } from 'expo-router';
-import { Alert, Linking } from 'react-native';
+import { Linking } from 'react-native';
 
 import { useData } from '@/lib/data';
 import { DISCLAIMER } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
+import { alert } from '@/lib/alert';
 import { Button, Card, Screen, T } from '@/ui';
 
 // Where the in-app feedback button sends email. Empty = button hidden.
@@ -17,12 +18,12 @@ export default function Settings() {
   const { session, profile } = useData();
 
   function deleteAccount() {
-    Alert.alert('Delete your account?', 'This permanently deletes your account, plan and every logged workout. It cannot be undone.', [
+    alert('Delete your account?', 'This permanently deletes your account, plan and every logged workout. It cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive', onPress: async () => {
           const { error } = await supabase.rpc('delete_account');
-          if (error) return Alert.alert('Could not delete', error.message);
+          if (error) return alert('Could not delete', error.message);
           clearLocal();
           await supabase.auth.signOut();
         },

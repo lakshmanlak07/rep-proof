@@ -4,7 +4,7 @@ import { View } from 'react-native';
 import { AVOIDABLE } from '@/engine/exercises.ts';
 import { recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
 import type { Experience, Goal, Pattern, Setup, SplitId, Unit } from '@/engine/types.ts';
-import { must, saveProgram, toProfile, track, useData, type ProfileRow } from '@/lib/data';
+import { ok, saveProgram, toProfile, track, useData, type ProfileRow } from '@/lib/data';
 import { clearPending, getPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Choice, Field, Screen, T } from '@/ui';
@@ -47,7 +47,7 @@ export default function Onboarding() {
         experience: experience!, goal: goal!, setup: setup!, days: days!, session_minutes: minutes!,
         bodyweight: Number(bodyweight), height_cm: heightCm, nutrition_phase: 'maintain', sex: sex === 'none' ? null : sex, unit, avoid,
       };
-      must(await supabase.from('profiles').upsert(row));
+      ok(await supabase.from('profiles').upsert(row));
       await saveProgram(toProfile({ ...row, plan_tier: 'free', deload_until: null }), chosen);
       clearPending();
       track('onboarding_done', { experience, setup, goal, days, split: chosen });

@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
-import { Alert, Modal, Pressable, View } from 'react-native';
+import { Modal, Pressable, View } from 'react-native';
 
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
 import { MUSCLES, recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
 import type { PlannedExercise, SplitId } from '@/engine/types.ts';
 import { isDeload, localDate, saveProgram, toProfile, track, updatePlan, updateProfile, useData } from '@/lib/data';
 import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
+import { alert } from '@/lib/alert';
 import { WhyBody } from '@/why';
 
 export default function Plan() {
@@ -19,7 +20,7 @@ export default function Plan() {
 
   function toggleDeload() {
     if (deload) return updateProfile(profile!.id, { deload_until: null }).then(refresh);
-    Alert.alert('Start a deload?', 'For the next 7 days: half the sets, same weights.', [
+    alert('Start a deload?', 'For the next 7 days: half the sets, same weights.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Start deload', onPress: async () => {
