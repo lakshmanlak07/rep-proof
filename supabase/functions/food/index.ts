@@ -1,34 +1,118 @@
-// Proxy to USDA FoodData Central. Keeps FDC_API_KEY on the server and caches results,
-// because USDA's limit (1,000 requests/hour) is per IP and every user shares this one.
+// Food search for the app: USDA FoodData Central (generic + US branded) merged with Open Food Facts
+// (worldwide packaged foods). Keeps FDC_API_KEY on the server and caches results, because USDA's
+// limit (1,000 requests/hour) is per IP and every user shares this one.
 // Deploy: npx supabase functions deploy food
 // Secret: npx supabase secrets set FDC_API_KEY=<your data.gov key>
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-type Food = { fdcId: number; name: string; brand: string | null; servingGrams: number | null; per100: { kcal: number; protein: number; fat: number; carbs: number } };
+type Macros = { kcal: number; protein: number; fat: number; carbs: number };
+type Food = { id: string; source: 'usda' | 'off'; name: string; brand: string | null; servingGrams: number | null; per100: Macros };
 
 const CACHE_DAYS = 30;
+const OFF_FIELDS = 'code,product_name,generic_name,brands,nutriments,serving_quantity,serving_quantity_unit';
+const OFF_HEADERS = { 'User-Agent': 'RepProof/1.0 (beta)' };
 const admin = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') ?? '{}').default,
 );
 
-function normalize(f: any): Food {
+const num = (v: unknown) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+};
+const hasData = (m: Macros) => !!(m.kcal || m.protein || m.fat || m.carbs);
+
+function fromUsda(f: any): Food {
   const n = (...nums: string[]) => {
-    for (const num of nums) {
-      const hit = f.foodNutrients?.find((x: any) => x.nutrientNumber === num);
-      if (hit) return Math.max(0, Number(hit.value) || 0);
+    for (const id of nums) {
+      const hit = f.foodNutrients?.find((x: any) => x.nutrientNumber === id);
+      if (hit) return num(hit.value);
     }
     return 0;
   };
   const unit = String(f.servingSizeUnit ?? '').toLowerCase();
   return {
-    fdcId: f.fdcId,
+    id: String(f.fdcId),
+    source: 'usda',
     name: f.description,
     brand: f.brandOwner ?? f.brandName ?? null,
     servingGrams: f.servingSize && (unit === 'g' || unit === 'grm' || unit === 'ml') ? Number(f.servingSize) : null,
     // Search results report nutrients per 100 g.
     per100: { kcal: n('208', '958', '957'), protein: n('203'), fat: n('204'), carbs: n('205') },
   };
+}
+
+// Same rules as src/lib/off.ts (unit-tested there).
+function fromOff(p: any): Food | null {
+  if (!p) return null;
+  const name = String(p.product_name || p.generic_name || '').trim();
+  const n = p.nutriments ?? {};
+  const kcal = num(n['energy-kcal_100g']) || num(n.energy_100g) / 4.184;
+  const per100 = { kcal: Math.round(kcal), protein: num(n.proteins_100g), fat: num(n.fat_100g), carbs: num(n.carbohydrates_100g) };
+  if (!name || !p.code || !hasData(per100)) return null;
+  const brands = Array.isArray(p.brands) ? p.brands[0] : String(p.brands ?? '').split(',')[0];
+  const unit = String(p.serving_quantity_unit ?? 'g').toLowerCase();
+  const serving = num(p.serving_quantity);
+  return { id: String(p.code), source: 'off', name, brand: brands?.trim() || null, servingGrams: serving && (unit === 'g' || unit === 'ml') ? serving : null, per100 };
+}
+
+async function usdaSearch(query: string, branded: boolean): Promise<any[]> {
+  const key = Deno.env.get('FDC_API_KEY');
+  if (!key) return [];
+  const url = new URL('https://api.nal.usda.gov/fdc/v1/foods/search');
+  url.searchParams.set('api_key', key);
+  url.searchParams.set('query', query);
+  url.searchParams.set('pageSize', '25');
+  url.searchParams.set('dataType', branded ? 'Branded' : 'Foundation,SR Legacy,Branded');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`USDA ${res.status}`);
+  return (await res.json()).foods ?? [];
+}
+
+async function offSearch(query: string): Promise<Food[]> {
+  const res = await fetch(`https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&page_size=20&fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
+  if (!res.ok) return [];
+  return ((await res.json()).hits ?? []).map(fromOff).filter(Boolean);
+}
+
+async function offBarcode(code: string): Promise<Food[]> {
+  const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
+  if (!res.ok) return [];
+  const food = fromOff((await res.json()).product);
+  return food ? [food] : [];
+}
+
+function dedupe(foods: Food[]): Food[] {
+  const seen = new Set<string>();
+  return foods.filter((f) => {
+    if (!hasData(f.per100)) return false; // entry has no nutrient data
+    const key = `${f.name.toLowerCase()}|${(f.brand ?? '').toLowerCase()}|${f.per100.kcal}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function search(q: string): Promise<Food[]> {
+  const [usda, off] = await Promise.all([usdaSearch(q, false).catch(() => []), offSearch(q).catch(() => [])]);
+  // USDA: names containing every search word first, then generic before branded.
+  // Stable sort keeps USDA's relevance order inside each group.
+  const words = q.split(/\s+/).filter(Boolean);
+  const rank: Record<string, number> = { Foundation: 0, 'SR Legacy': 1, 'Survey (FNDDS)': 2 };
+  const score = (f: any) => (words.every((w) => String(f.description ?? '').toLowerCase().includes(w)) ? 0 : 10) + (rank[f.dataType] ?? 3);
+  const sorted = [...usda].sort((a, b) => score(a) - score(b));
+  // Exact-name USDA matches lead; Open Food Facts (worldwide packaged foods) follow; loose USDA matches last.
+  const exact = sorted.filter((f) => score(f) < 10).map(fromUsda);
+  const loose = sorted.filter((f) => score(f) >= 10).map(fromUsda);
+  return dedupe([...exact, ...off, ...loose]).slice(0, 40);
+}
+
+async function barcode(code: string): Promise<Food[]> {
+  const off = await offBarcode(code).catch(() => []);
+  if (off.length) return off;
+  const strip = (s: string) => s.replace(/^0+/, '');
+  const usda = await usdaSearch(code, true).catch(() => []);
+  return dedupe(usda.filter((f) => strip(String(f.gtinUpc ?? '')) === strip(code)).map(fromUsda));
 }
 
 // The native app needs no CORS; the web build does.
@@ -42,7 +126,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const { query, upc } = await req.json().catch(() => ({}));
   const q = String(query ?? '').trim().toLowerCase().slice(0, 100);
-  const code = String(upc ?? '').replace(/\D/g, '');
+  const code = String(upc ?? '').replace(/\D/g, '').slice(0, 14);
   if (!q && !code) return json({ error: 'query or upc required' }, 400);
   const key = code ? `upc:${code}` : `q:${q}`;
 
@@ -51,40 +135,7 @@ Deno.serve(async (req) => {
     return json({ foods: cached.data.results });
   }
 
-  const url = new URL('https://api.nal.usda.gov/fdc/v1/foods/search');
-  url.searchParams.set('api_key', Deno.env.get('FDC_API_KEY')!);
-  url.searchParams.set('query', code || q);
-  url.searchParams.set('pageSize', '25');
-  url.searchParams.set('dataType', code ? 'Branded' : 'Foundation,SR Legacy,Branded');
-  const res = await fetch(url);
-  if (!res.ok) return json({ error: `USDA ${res.status}` }, res.status === 429 ? 429 : 502);
-  const data = await res.json();
-
-  let raw: any[] = data.foods ?? [];
-  if (code) {
-    const strip = (s: string) => s.replace(/^0+/, '');
-    raw = raw.filter((f) => strip(String(f.gtinUpc ?? '')) === strip(code));
-  } else {
-    // Names containing every search word first, then generic before branded.
-    // Stable sort keeps USDA's relevance order inside each group.
-    const words = q.split(/\s+/).filter(Boolean);
-    const rank: Record<string, number> = { Foundation: 0, 'SR Legacy': 1, 'Survey (FNDDS)': 2 };
-    const score = (f: any) => {
-      const name = String(f.description ?? '').toLowerCase();
-      return (words.every((w) => name.includes(w)) ? 0 : 10) + (rank[f.dataType] ?? 3);
-    };
-    raw = [...raw].sort((a, b) => score(a) - score(b));
-  }
-  // Branded data repeats the same product under many entries; keep one per name + brand + calories.
-  const seen = new Set<string>();
-  const foods: Food[] = raw.map(normalize).filter((f) => {
-    const { kcal, protein, fat, carbs } = f.per100;
-    if (!kcal && !protein && !fat && !carbs) return false; // entry has no nutrient data
-    const key = `${f.name.toLowerCase()}|${f.brand ?? ''}|${f.per100.kcal}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  await admin.from('food_cache').upsert({ key, results: foods, fetched_at: new Date().toISOString() });
+  const foods = code ? await barcode(code) : await search(q);
+  if (foods.length) await admin.from('food_cache').upsert({ key, results: foods, fetched_at: new Date().toISOString() });
   return json({ foods });
 });

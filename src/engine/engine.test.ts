@@ -219,3 +219,21 @@ test('pinned reps become the target: hitting them adds weight, never reads as a 
   const miss = suggest(pinned, [sets(3, 100, 4), sets(3, 100, 4)], 'intermediate', 'kg');
   assert.equal(miss.kind, 'drop');
 });
+
+test('Open Food Facts products convert to foods', async () => {
+  const { fromOff, dedupe } = await import('../lib/off.ts');
+  const nutella = fromOff({ code: '3017620422003', product_name: 'Nutella', brands: 'Nutella, Ferrero',
+    nutriments: { 'energy-kcal_100g': 539, proteins_100g: 6.3, fat_100g: 30.9, carbohydrates_100g: 57.5 } });
+  assert.deepEqual(nutella, { id: '3017620422003', source: 'off', name: 'Nutella', brand: 'Nutella', servingGrams: null,
+    per100: { kcal: 539, protein: 6.3, fat: 30.9, carbs: 57.5 } });
+  // kJ only -> kcal; brand as array (search API); serving in grams kept
+  const kj = fromOff({ code: '1', product_name: 'Oats', brands: ['Quaker'], serving_quantity: 40, nutriments: { energy_100g: 1569, proteins_100g: 13 } });
+  assert.equal(kj?.per100.kcal, 375);
+  assert.equal(kj?.brand, 'Quaker');
+  assert.equal(kj?.servingGrams, 40);
+  // unusable entries dropped
+  assert.equal(fromOff({ code: '2', product_name: 'Water', nutriments: {} }), null);
+  assert.equal(fromOff({ code: '3', nutriments: { proteins_100g: 5 } }), null);
+  assert.equal(fromOff(undefined), null);
+  assert.equal(dedupe([nutella!, { ...nutella!, id: 'x' }, kj!]).length, 2);
+});
