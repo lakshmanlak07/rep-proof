@@ -1,16 +1,12 @@
 import 'expo-sqlite/localStorage/install';
 
 import { router } from 'expo-router';
-import { Linking } from 'react-native';
 
 import { useData } from '@/lib/data';
 import { DISCLAIMER } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
 import { alert } from '@/lib/alert';
 import { Button, Card, Screen, T } from '@/ui';
-
-// Where the in-app feedback button sends email. Empty = button hidden.
-const FEEDBACK_EMAIL = '';
 
 // Everything this device keeps between sessions (see workout.tsx and lib/pending.ts).
 const clearLocal = () => ['draft_workout', 'missed_choice', 'pending_onboarding'].forEach((k) => localStorage.removeItem(k));
@@ -46,9 +42,7 @@ export default function Settings() {
       </Card>
       <Button title="Edit training profile" onPress={() => router.push('/training')} />
       <Button title="The science behind RepProof" onPress={() => router.push('/science')} />
-      {FEEDBACK_EMAIL ? (
-        <Button title="Send feedback" onPress={() => Linking.openURL(`mailto:${FEEDBACK_EMAIL}?subject=RepProof%20beta%20feedback`)} />
-      ) : null}
+      <Button title="Send feedback" onPress={() => router.push('/feedback')} />
       <Button title="Sign out" onPress={() => { clearLocal(); supabase.auth.signOut(); }} />
       <Button title="Delete account" kind="danger" onPress={deleteAccount} />
     </Screen>

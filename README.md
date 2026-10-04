@@ -45,6 +45,9 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 | Food search | `supabase/functions/food` | Proxies USDA FoodData Central, key stays server-side, 30-day cache |
 | Beta metric | `select * from beta_week4_metric();` | Admin only (SQL Editor); week-4 retention from the PRD |
 | Analytics | `events` table | Insert-only from the app |
+| Feedback + weekly survey | `feedback` table (migration 3) | Insert-only; read in Table Editor |
+| Founding-member waitlist | `events` where `name = 'pro_waitlist_joined'` | PRD second success signal |
+| Bodyweight | `bodyweight_logs` (migration 3) | One entry per day; updates `profiles.bodyweight` |
 
 ## Checks
 

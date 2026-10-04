@@ -176,6 +176,10 @@ export async function updateProfile(id: string, patch: Partial<ProfileRow>) {
   ok(await supabase.from('profiles').update(patch).eq('id', id));
 }
 
+export async function sendFeedback(kind: 'feedback' | 'survey', message: string | null, answers?: Record<string, unknown>) {
+  ok(await supabase.from('feedback').insert({ kind, message: message?.trim() || null, answers: answers ?? null }));
+}
+
 export type WeighIn = { weight: number; logged_on: string };
 
 /** Today's bodyweight (one per day; logging again replaces it). Also updates the profile, which drives nutrition targets. */

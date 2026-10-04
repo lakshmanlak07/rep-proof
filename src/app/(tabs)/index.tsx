@@ -4,12 +4,15 @@ import { useCallback, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
+import { targets } from '@/engine/nutrition.ts';
 import { deloadOffer, isMissed } from '@/engine/session.ts';
 import type { Explanation } from '@/engine/types.ts';
 import { daysSince, isDeload, localDate, recentWorkouts, startOfWeek, track, updateProfile, useData } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Card, s, Screen, T } from '@/ui';
 import { attempt } from '@/lib/alert';
+import { FoundingMember, shouldAskSurvey, shouldOfferFoundingDeal, WeeklySurvey } from '@/beta';
+import { dayLogs, sum, type Macros } from '@/lib/food';
 import { Why } from '@/why';
 
 export default function Home() {
@@ -17,6 +20,10 @@ export default function Home() {
   const [weekCount, setWeekCount] = useState<number | null>(null);
   const [offer, setOffer] = useState<Explanation | null>(null);
   const [missed, setMissed] = useState(false);
+  const [eaten, setEaten] = useState<Macros | null>(null);
+  const [survey, setSurvey] = useState(false);
+  const [founding, setFounding] = useState(false);
+  const userId = profile?.id;
 
   useFocusEffect(useCallback(() => {
     supabase.from('workouts').select('id', { count: 'exact', head: true }).not('finished_at', 'is', null).gte('started_at', startOfWeek())
@@ -24,19 +31,29 @@ export default function Home() {
     recentWorkouts(4).then((r) => {
       setOffer(deloadOffer(r));
       setMissed(isMissed(r[0] ? daysSince(r[0].finishedAt) : null, program?.plan.days.length ?? 3));
+      if (userId) {
+        setSurvey(shouldAskSurvey(userId, r.length > 0));
+        setFounding(r.length > 0 && shouldOfferFoundingDeal(userId));
+      }
     }).catch(() => {});
-  }, [program]));
+    dayLogs().then((l) => setEaten(sum(l))).catch(() => setEaten(null));
+  }, [program, userId]));
 
   async function acceptDeload() {
     const end = new Date();
     end.setDate(end.getDate() + 6);
-    if (!(await attempt(() => updateProfile(profile!.id, { deload_until: localDate(end) }), 'start the deload'))) return;
+    if (!userId) return;
+    if (!(await attempt(() => updateProfile(userId, { deload_until: localDate(end) }), 'start the deload'))) return;
     track('deload', { trigger: 'offer' });
     await refresh();
   }
 
   if (!program || !profile) return null;
   const day = program.plan.days[program.next_day];
+  const goal = targets({
+    bodyweight: Number(profile.bodyweight), unit: profile.unit, heightCm: Number(profile.height_cm),
+    age: new Date().getFullYear() - profile.birth_year, sex: profile.sex, days: profile.days, phase: profile.nutrition_phase,
+  });
 
   return (
     <Screen edges={['top']}>
@@ -81,10 +98,22 @@ export default function Home() {
         <Button kind="primary" title="Start workout" onPress={() => router.push('/workout')} style={{ marginTop: 6 }} />
       </Card>
 
+      <Pressable accessibilityRole="button" onPress={() => router.push('/nutrition')}>
+        <Card>
+          <T muted size="sm">NUTRITION TODAY</T>
+          <View style={[s.row, { flexWrap: 'wrap', columnGap: 16, rowGap: 2 }]}>
+            <T bold>{Math.round(eaten?.kcal ?? 0)} / {goal.calories} kcal</T>
+            <T bold>{Math.round(eaten?.protein ?? 0)} / {goal.protein} g protein</T>
+          </View>
+        </Card>
+      </Pressable>
+
       <Card>
         <T muted size="sm">THIS WEEK</T>
         <T size="lg">{weekCount ?? '–'} of {program.plan.days.length} sessions</T>
       </Card>
+      {survey ? <WeeklySurvey userId={profile.id} onDone={() => setSurvey(false)} /> : null}
+      {founding && !survey ? <FoundingMember userId={profile.id} onDone={() => setFounding(false)} /> : null}
     </Screen>
   );
 }
