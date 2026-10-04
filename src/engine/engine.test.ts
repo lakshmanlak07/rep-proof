@@ -253,3 +253,24 @@ test('Open Food Facts products convert to foods', async () => {
   assert.equal(fromOff(undefined), null);
   assert.equal(dedupe([nutella!, { ...nutella!, id: 'x' }, kj!]).length, 2);
 });
+
+test('home stats: week dots, streak, new bests', async () => {
+  const { weekDots, streakWeeks, newBests } = await import('../lib/stats.ts');
+  const now = new Date(2026, 9, 7, 12); // Wednesday 7 Oct 2026, local time
+  const at = (y: number, m: number, d: number) => new Date(y, m, d, 18).toISOString();
+  assert.deepEqual(weekDots([at(2026, 9, 5), at(2026, 9, 7), at(2026, 9, 4)], now), [true, false, true, false, false, false, false]);
+
+  // this week + 2 previous weeks; a gap before that
+  assert.equal(streakWeeks([at(2026, 9, 6), at(2026, 8, 29), at(2026, 8, 22), at(2026, 8, 8)], now), 3);
+  // nothing yet this week: streak still counts from last week
+  assert.equal(streakWeeks([at(2026, 8, 29), at(2026, 8, 22)], now), 2);
+  assert.equal(streakWeeks([], now), 0);
+
+  const s = (exercise_id: string, weight: number, workout_id: string, created_at: string) => ({ exercise_id, weight, workout_id, created_at });
+  const bests = newBests([
+    s('bb_bench', 60, 'w1', at(2026, 8, 20)), s('bb_bench', 62.5, 'w1', at(2026, 8, 20)),
+    s('bb_bench', 65, 'w2', at(2026, 9, 1)), s('bb_squat', 100, 'w2', at(2026, 9, 1)),
+    s('bb_bench', 65, 'w3', at(2026, 9, 5)), // equal, not a new best
+  ], 30, now);
+  assert.deepEqual(bests.map((b) => [b.exerciseId, b.weight, b.previous]), [['bb_bench', 65, 62.5]]); // first squat session does not count
+});

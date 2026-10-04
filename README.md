@@ -14,7 +14,8 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
    The app keeps working before they are applied: plan rebuilds fall back to two steps and the bodyweight card shows a notice.
 2. Authentication → Sign In / Providers → Email → turn off "Confirm email" (beta).
 3. Copy `.env.example` to `.env`; fill in Project URL and publishable key (Project Settings → API).
-4. Food search: get a free key at https://fdc.nal.usda.gov/api-key-signup, then:
+4. Food search works out of the box via Open Food Facts (worldwide packaged foods, barcodes; no key).
+   To add USDA generic foods and server-side caching, get a free key at https://fdc.nal.usda.gov/api-key-signup, then:
    ```
    npx supabase login
    npx supabase link --project-ref <your project ref>
@@ -38,11 +39,11 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 
 | Piece | Where | Notes |
 | --- | --- | --- |
-| Auth | Supabase Auth, email + password | Age gate (18+) and disclaimer happen on-device before sign-up |
+| Auth | Supabase Auth: email + password, or mobile number + texted code | Age gate (18+) and disclaimer happen on-device before sign-up. Phone needs an SMS provider (below) |
 | Data | `supabase/migrations` | Row-level security on every table; users only see their own rows |
 | Account deletion | `delete_account()` RPC | Cascades to all user data (App Store requirement) |
 | Plan replace | `replace_program()` RPC | Atomic; app falls back if migration 2 is not applied |
-| Food search | `supabase/functions/food` | Proxies USDA FoodData Central, key stays server-side, 30-day cache |
+| Food search | `supabase/functions/food` | USDA FoodData Central + Open Food Facts merged, key stays server-side, 30-day cache. App falls back to Open Food Facts directly if not deployed |
 | Beta metric | `select * from beta_week4_metric();` | Admin only (SQL Editor); week-4 retention from the PRD |
 | Analytics | `events` table | Insert-only from the app |
 | Feedback + weekly survey | `feedback` table (migration 3) | Insert-only; read in Table Editor |
@@ -52,3 +53,14 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 ## Checks
 
 `npm run typecheck`, `npm run lint`, `npm test`. GitHub Actions runs all three plus `deno check` on the food function for every push.
+
+## Phone sign-in (optional)
+
+The app offers "Mobile number" sign-in. Until it is switched on, it tells users to use email.
+Supabase dashboard -> Authentication -> Sign In / Providers -> Phone: enable it and connect an SMS
+provider (Twilio, MessageBird, Vonage or Textlocal; needs an account with that provider, texts are paid).
+
+## Training model
+
+1 to 3 working sets per exercise, to failure (beginners stop 1 rep short), plus one warm-up set:
+2 sets by default, 3 for weak points, 1 for strong points (set in onboarding or Settings -> Edit training profile).

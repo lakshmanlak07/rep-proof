@@ -33,7 +33,7 @@ export default function Settings() {
     <Screen edges={['bottom']}>
       <Card>
         <T muted size="sm">SIGNED IN AS</T>
-        <T>{session?.user.email}</T>
+        <T>{session?.user.email || session?.user.phone}</T>
         <T muted size="sm">Weights in {profile?.unit} · Plan: {profile?.plan_tier}</T>
       </Card>
       <Card>
