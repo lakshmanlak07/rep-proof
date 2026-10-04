@@ -274,3 +274,7 @@ test('home stats: week dots, streak, new bests', async () => {
   ], 30, now);
   assert.deepEqual(bests.map((b) => [b.exerciseId, b.weight, b.previous]), [['bb_bench', 65, 62.5]]); // first squat session does not count
 });
+
+test('plans record the engine version that built them', () => {
+  assert.equal(buildProgram(base).version, 2);
+});

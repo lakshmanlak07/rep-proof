@@ -48,6 +48,10 @@ export function recommendSplit(days: number): SplitId {
   return 'ppl';
 }
 
+// Bump when plan rules change; saved plans from older versions are rebuilt automatically.
+// 2 = founder model: 1-3 sets to failure, warm-up every exercise, weak/strong points.
+export const ENGINE_VERSION = 2;
+
 const BIG: Muscle[] = ['back', 'chest', 'quads', 'hamstrings', 'glutes'];
 
 // Founder rule (2026-10-04): 1-3 working sets per exercise, never more.
@@ -193,7 +197,7 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   });
   explanations.push(REST_WHY);
 
-  return { split, weeklySets, days, explanations, emphasis };
+  return { split, weeklySets, days, explanations, emphasis, version: ENGINE_VERSION };
 }
 
 // Beginners get easier lifts first; otherwise library order (compounds lead).

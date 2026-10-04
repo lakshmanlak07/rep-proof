@@ -20,7 +20,6 @@ export function sum(rows: Macros[]): Macros {
     { kcal: 0, protein: 0, fat: 0, carbs: 0 });
 }
 
-class NotDeployed extends Error {}
 
 /** The `food` edge function: USDA + Open Food Facts merged server-side, USDA key kept on the server. */
 async function callFood(body: { query?: string; upc?: string }): Promise<Food[]> {
@@ -28,7 +27,6 @@ async function callFood(body: { query?: string; upc?: string }): Promise<Food[]>
   if (error) {
     // FunctionsHttpError carries the HTTP response; network failures have none.
     const status = (error as { context?: { status?: number } }).context?.status;
-    if (status === 404) throw new NotDeployed();
     if (status === 429) throw new Error('Food search is busy right now. Try again in a minute.');
     if (status) throw new Error('Food search had a problem. Try again shortly.');
     throw new Error('Could not reach food search. Check your connection and try again.');
@@ -36,12 +34,20 @@ async function callFood(body: { query?: string; upc?: string }): Promise<Food[]>
   return (data?.foods ?? []) as Food[];
 }
 
+const toFoods = (rows: Record<string, unknown>[] | undefined) => dedupe((rows ?? []).map(fromOff).filter((f): f is Food => !!f));
+
+/** Open Food Facts search: the newer search service first; the classic endpoint if that fails (it also allows browser calls). */
 async function offSearch(query: string): Promise<Food[]> {
-  const url = `https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&page_size=30&fields=${OFF_FIELDS}`;
-  const res = await fetch(url, { headers: OFF_HEADERS });
+  const q = encodeURIComponent(query);
+  try {
+    const res = await fetch(`https://search.openfoodfacts.org/search?q=${q}&page_size=30&fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
+    if (res.ok) return toFoods((await res.json()).hits);
+  } catch {
+    // fall through to the classic endpoint
+  }
+  const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${q}&search_simple=1&json=1&page_size=30&fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
   if (!res.ok) throw new Error('Food search had a problem. Try again shortly.');
-  const data = await res.json();
-  return dedupe(((data.hits ?? []) as Record<string, unknown>[]).map(fromOff).filter((f): f is Food => !!f));
+  return toFoods((await res.json()).products);
 }
 
 async function offBarcode(code: string): Promise<Food[]> {
@@ -52,13 +58,16 @@ async function offBarcode(code: string): Promise<Food[]> {
   return food ? [food] : [];
 }
 
-/** Search every source we have; works before the edge function is deployed (Open Food Facts direct). */
+/** Search every source we have. If the edge function is missing or failing, Open Food Facts direct. */
 export async function searchFoods(query: string): Promise<Food[]> {
   try {
     return await callFood({ query });
   } catch (e) {
-    if (!(e instanceof NotDeployed)) throw e;
-    return offSearch(query);
+    try {
+      return await offSearch(query);
+    } catch {
+      throw e;
+    }
   }
 }
 

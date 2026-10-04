@@ -2,7 +2,7 @@ import type { Session } from '@supabase/supabase-js';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 
 import type { Phase } from '@/engine/nutrition.ts';
-import { buildProgram } from '@/engine/plan.ts';
+import { buildProgram, ENGINE_VERSION } from '@/engine/plan.ts';
 import type { CheckIn, Experience, Goal, LoggedSet, Pattern, Profile, Program, Setup, SplitId, Unit } from '@/engine/types.ts';
 import { supabase } from './supabase';
 
@@ -66,8 +66,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         return;
       }
+      let program = g.data as ProgramRow | null;
+      // Plans saved by an older engine are rebuilt under the current rules (split and place in the week kept).
+      if (p.data && program && (program.plan.version ?? 1) < ENGINE_VERSION) {
+        try {
+          await saveProgram(toProfile(p.data, program.plan.emphasis), program.split, program.next_day);
+          const fresh = await supabase.from('programs').select('id, split, plan, next_day').eq('active', true).maybeSingle();
+          if (!fresh.error && fresh.data) program = fresh.data;
+        } catch {
+          // keep the old plan; the next load tries again
+        }
+      }
       setProfile(p.data);
-      setProgram(g.data);
+      setProgram(program);
     }
     setFailed(false);
     setLoading(false);

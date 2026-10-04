@@ -65,6 +65,7 @@ export type Program = {
   days: PlannedDay[];
   explanations: Explanation[];
   emphasis?: { weak: Muscle[]; strong: Muscle[] }; // kept with the plan so rebuilds remember it
+  version?: number; // ENGINE_VERSION that built it; older plans are rebuilt on load
 };
 
 export type LoggedSet = { weight: number; reps: number; rir: number | null };
