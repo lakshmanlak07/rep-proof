@@ -1,5 +1,6 @@
 import { AVOIDABLE } from '@/engine/exercises.ts';
-import type { Experience, Goal, Pattern, Setup } from '@/engine/types.ts';
+import { MUSCLE_NAMES, MUSCLES } from '@/engine/plan.ts';
+import type { Experience, Goal, Muscle, Pattern, Setup } from '@/engine/types.ts';
 
 // Choices shared by onboarding and the training-profile editor.
 export const EXPERIENCE_OPTIONS: { value: Experience; label: string; hint: string }[] = [
@@ -18,3 +19,4 @@ export const GOAL_OPTIONS: { value: Goal; label: string }[] = [
 ];
 export const MINUTE_OPTIONS = [30, 45, 60, 75, 90].map((m) => ({ value: m, label: `${m} minutes` }));
 export const AVOID_OPTIONS: { value: Pattern; label: string }[] = AVOIDABLE.map((a) => ({ value: a.pattern, label: a.label }));
+export const MUSCLE_OPTIONS: { value: Muscle; label: string }[] = MUSCLES.map((m) => ({ value: m, label: MUSCLE_NAMES[m] }));

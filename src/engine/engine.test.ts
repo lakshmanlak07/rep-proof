@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { EXERCISE_BY_ID, SETUP_EQUIPMENT, substitutes } from './exercises.ts';
-import { buildProgram, MUSCLES, recommendSplit, SPLIT_DAYS } from './plan.ts';
+import { buildProgram, exerciseMinutes, MUSCLES, recommendSplit, SPLIT_DAYS } from './plan.ts';
 import { adjustForDay, isBadDay, suggest, warmup } from './progression.ts';
 import { REFERENCES } from './references.ts';
 import type { LoggedSet, PlannedExercise, Profile } from './types.ts';
@@ -33,12 +33,13 @@ test('every profile combination builds a valid program', () => {
             for (const e of d.exercises) {
               const ex = EXERCISE_BY_ID[e.exerciseId];
               assert.ok(ex.equipment.every((q) => SETUP_EQUIPMENT[setup].includes(q)), `${ex.id} not available at ${setup}`);
-              assert.ok(e.sets >= 1 && e.sets <= 5, `${ex.id} has ${e.sets} sets`);
+              assert.ok(e.sets >= 1 && e.sets <= 3, `${ex.id} has ${e.sets} sets (founder rule: 1-3)`);
+              assert.equal(e.rirTarget, experience === 'beginner' ? 1 : 0);
               assert.ok(e.repMin >= 5 && e.repMax <= 12);
             }
-            const total = d.exercises.reduce((n, e) => n + e.sets, 0);
-            const floor = d.exercises.length; // 1 set per exercise is the minimum
-            assert.ok(total <= Math.max(floor, Math.floor(sessionMinutes / 3)), `${days}d ${sessionMinutes}min ${d.name}: ${total} sets`);
+            const minutes = d.exercises.reduce((n, e) => n + exerciseMinutes(e.sets), 0);
+            const floor = d.exercises.length * exerciseMinutes(1); // every exercise at 1 set is the minimum
+            assert.ok(minutes <= Math.max(floor, sessionMinutes), `${days}d ${sessionMinutes}min ${d.name}: ${minutes} min`);
             const ids = d.exercises.map((e) => e.exerciseId);
             assert.equal(new Set(ids).size, ids.length, 'duplicate exercise in one day');
           }
@@ -54,12 +55,22 @@ test('weekly sets per muscle match the planned sets', () => {
   }
 });
 
-test('volume starts at the experience default and is trimmed to fit short sessions', () => {
-  assert.equal(buildProgram({ ...base, sessionMinutes: 120 }).weeklySets.chest, 12);
-  assert.equal(buildProgram({ ...base, experience: 'beginner', sessionMinutes: 120 }).weeklySets.chest, 8);
-  const short = buildProgram({ ...base, days: 2, sessionMinutes: 30 });
-  assert.ok(short.weeklySets.chest! < 12);
-  assert.ok(short.explanations.some((e) => e.text.startsWith('Trimmed')));
+test('sets per exercise: 3 for weak points, 1 for strong points, 2 otherwise; trimmed to fit time', () => {
+  const p = buildProgram({ ...base, sessionMinutes: 120, weak: ['chest', 'biceps'], strong: ['quads'] });
+  const setsOf = (m: string) => [...new Set(p.days.flatMap((d) => d.exercises).filter((e) => EXERCISE_BY_ID[e.exerciseId].muscle === m).map((e) => e.sets))];
+  assert.deepEqual(setsOf('chest'), [3]);
+  assert.deepEqual(setsOf('biceps'), [3]);
+  assert.deepEqual(setsOf('quads'), [1]);
+  assert.deepEqual(setsOf('back'), [2]);
+  assert.deepEqual(p.emphasis, { weak: ['chest', 'biceps'], strong: ['quads'] });
+  // a muscle in both lists counts as weak
+  assert.deepEqual(buildProgram({ ...base, weak: ['back'], strong: ['back'] }).emphasis, { weak: ['back'], strong: [] });
+
+  const short = buildProgram({ ...base, days: 2, sessionMinutes: 30, weak: ['chest'] });
+  assert.ok(short.explanations.some((e) => e.text.startsWith('Some sets were cut')));
+  const chest = short.days[0].exercises.find((e) => EXERCISE_BY_ID[e.exerciseId].muscle === 'chest')!;
+  const others = short.days[0].exercises.filter((e) => EXERCISE_BY_ID[e.exerciseId].muscle !== 'chest');
+  assert.ok(others.every((e) => e.sets <= chest.sets), 'weak points keep their sets longest');
 });
 
 test('avoided patterns never appear, and the plan explains a missing muscle', () => {
@@ -124,13 +135,16 @@ test('bad day and deload never raise load and cut sets', () => {
   const up = suggest(bench, [sets(3, 60, 10)], 'intermediate', 'kg');
   const bad = adjustForDay(up, 60, { badDay: true, deload: false });
   assert.deepEqual([bad.weight, bad.sets], [60, 2]);
-  const deload = adjustForDay({ ...up, sets: 5 }, 60, { badDay: false, deload: true });
-  assert.deepEqual([deload.weight, deload.sets], [60, 3]);
+  const deload = adjustForDay({ ...up, sets: 3 }, 60, { badDay: false, deload: true });
+  assert.deepEqual([deload.weight, deload.sets], [60, 2]);
+  assert.equal(adjustForDay({ ...up, sets: 1 }, 60, { badDay: true, deload: false }).sets, 1); // never below 1
 });
 
-test('warm-up ramp', () => {
-  assert.deepEqual(warmup(100, 'kg'), [{ weight: 20, reps: 10 }, { weight: 50, reps: 5 }, { weight: 80, reps: 3 }]);
-  assert.equal(warmup(30, 'kg')[1].weight, 20); // never below the bar
+test('one warm-up set per exercise at about 80% for 5 reps', () => {
+  assert.deepEqual(warmup(100, 'kg'), { weight: 80, reps: 5 });
+  assert.deepEqual(warmup(135, 'lb'), { weight: 110, reps: 5 });
+  assert.equal(warmup(20, 'kg', true).weight, 20); // barbell: never below the empty bar
+  assert.equal(warmup(20, 'kg').weight, 15); // dumbbells/machines can go lighter
 });
 
 test('simulated lifter over 8 weeks progresses and recovers from a bad patch', () => {
@@ -169,8 +183,10 @@ test('suggestion kinds and pins', async () => {
   assert.equal(suggest(bench, [], 'intermediate', 'kg').kind, 'calibrate');
   assert.equal(suggest(bench, [sets(3, 60, 5), sets(3, 60, 4)], 'intermediate', 'kg').kind, 'drop');
   assert.equal(suggest(bench, [sets(3, 60, 10)], 'intermediate', 'kg').kind, 'up');
-  const pinned = applyPins(suggest(bench, [sets(3, 60, 8)], 'intermediate', 'kg'), { ...bench, pinnedSets: 4, pinnedReps: 10 });
-  assert.deepEqual([pinned.sets, pinned.reps, pinned.weight], [4, 10, 60]);
+  const pinned = applyPins(suggest(bench, [sets(3, 60, 8)], 'intermediate', 'kg'), { ...bench, pinnedSets: 2, pinnedReps: 10 });
+  assert.deepEqual([pinned.sets, pinned.reps, pinned.weight], [2, 10, 60]);
+  // founder rule: a pin can never push past 3 working sets
+  assert.equal(applyPins(suggest(bench, [sets(3, 60, 8)], 'intermediate', 'kg'), { ...bench, pinnedSets: 4 }).sets, 3);
   assert.ok(pinned.explanation.text.includes('pinned'));
 });
 

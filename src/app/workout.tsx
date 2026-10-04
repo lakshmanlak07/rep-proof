@@ -1,10 +1,10 @@
 import 'expo-sqlite/localStorage/install';
 
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 
-import { EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
-import { REST_WHY } from '@/engine/plan.ts';
+import { available, EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
+import { MUSCLE_NAMES, MUSCLES, repRange, REST_WHY, rirTarget } from '@/engine/plan.ts';
 import { adjustForDay, applyPins, isBadDay, suggest, warmup, WARMUP_WHY, type Suggestion } from '@/engine/progression.ts';
 import { cooldown, isMissed } from '@/engine/session.ts';
 import type { CheckIn, LoggedSet, PlannedExercise } from '@/engine/types.ts';
@@ -50,6 +50,7 @@ export default function Workout() {
   const [busy, setBusy] = useState(false);
   const [restEnd, setRestEnd] = useState<number | null>(null);
   const [swapFor, setSwapFor] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [missed, setMissed] = useState(false);
   const [skip, setSkip] = useState(() => localStorage.getItem(MISSED_KEY) === 'skip');
@@ -126,6 +127,22 @@ export default function Workout() {
     return { ...d, items };
   });
 
+  // Any lift, not just the plan's: 2 working sets, tracked and progressed like planned ones.
+  async function addExercise(exerciseId: string) {
+    setAdding(false);
+    if (!draft || !profile) return;
+    const [repMin, repMax] = repRange(profile.goal, EXERCISE_BY_ID[exerciseId].compound);
+    const planned = { exerciseId, sets: 2, repMin, repMax, rirTarget: rirTarget(profile.experience) };
+    const badDay = !!draft.checkin && isBadDay(draft.checkin);
+    try {
+      const item = await buildItem(planned, exerciseId, badDay);
+      setDraft((d) => d && { ...d, items: [...d.items, item] });
+      track('exercise_added', { exerciseId });
+    } catch {
+      alert('Could not add that exercise', 'Check your connection and try again.');
+    }
+  }
+
   async function swap(i: number, exerciseId: string) {
     setSwapFor(null);
     if (!draft) return;
@@ -147,7 +164,7 @@ export default function Workout() {
           const avoid = [...new Set([...profile!.avoid, ex.pattern])];
           const saved = await attempt(async () => {
             await updateProfile(profile!.id, { avoid });
-            await saveProgram(toProfile({ ...profile!, avoid }), program!.split, program!.next_day);
+            await saveProgram(toProfile({ ...profile!, avoid }, program!.plan.emphasis), program!.split, program!.next_day);
           }, 'update your plan');
           if (!saved) return;
           setDraft((d) => d && { ...d, items: d.items.filter((_, k) => k !== i) });
@@ -287,7 +304,6 @@ export default function Workout() {
     );
   }
 
-  const firstCompound = draft.items.findIndex((it) => EXERCISE_BY_ID[it.exerciseId].compound);
 
   return (
     <Screen>
@@ -313,14 +329,14 @@ export default function Workout() {
               <Why e={it.suggestion.explanation} changed={it.changed} />
             </View>
             <T muted>
-              {w === null ? 'Calibrate: pick your starting weight' : `${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`} · {it.planned.rirTarget} in reserve
+              {w === null ? 'Calibrate: pick your starting weight' : `${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`} · {it.planned.rirTarget === 0 ? 'to failure' : `${it.planned.rirTarget} rep short of failure`}
             </T>
-            {i === firstCompound && w !== null && ex.equipment.includes('barbell') ? (
-              <View style={s.row}>
-                <T muted size="sm" style={{ flex: 1 }}>Warm-up: {warmup(w, unit).map((x) => `${x.weight}×${x.reps}`).join(' · ')}</T>
-                <Why e={WARMUP_WHY} />
-              </View>
-            ) : null}
+            <View style={s.row}>
+              <T muted size="sm" style={{ flex: 1 }}>
+                {w === null ? 'Warm-up: 1 light set of 5 before your first working set' : `Warm-up: 1 × ${warmup(w, unit, ex.equipment.includes('barbell')).reps} at ${warmup(w, unit, ex.equipment.includes('barbell')).weight} ${unit}`}
+              </T>
+              <Why e={WARMUP_WHY} />
+            </View>
             {ex.cues.map((c) => <T key={c} muted size="sm">• {c}</T>)}
 
             <View style={[s.row, { marginTop: 4 }]}>
@@ -355,7 +371,31 @@ export default function Workout() {
         );
       })}
 
+      <Button title="Add an exercise" onPress={() => setAdding(true)} />
       <Button kind="primary" title="Finish workout" loading={busy} onPress={confirmFinish} />
+
+      <Modal visible={adding} transparent animationType="slide" onRequestClose={() => setAdding(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setAdding(false)} />
+        {adding ? (
+          <Card style={{ borderRadius: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40, maxHeight: '75%' }}>
+            <T size="lg">Add an exercise</T>
+            <T muted size="sm">Logged and tracked like the rest of your plan.</T>
+            <ScrollView>
+              {MUSCLES.map((m) => {
+                const options = available(profile.setup, profile.avoid).filter((e) => e.muscle === m && !draft.items.some((it) => it.exerciseId === e.id));
+                if (!options.length) return null;
+                return (
+                  <View key={m} style={{ gap: 6, marginBottom: 10 }}>
+                    <T bold>{MUSCLE_NAMES[m]}</T>
+                    {options.map((e) => <Button key={e.id} title={e.name} onPress={() => addExercise(e.id)} />)}
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <Button kind="ghost" title="Cancel" onPress={() => setAdding(false)} />
+          </Card>
+        ) : null}
+      </Modal>
 
       <Modal visible={swapFor !== null} transparent animationType="slide" onRequestClose={() => setSwapFor(null)}>
         <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setSwapFor(null)} />

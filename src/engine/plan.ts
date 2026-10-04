@@ -30,6 +30,11 @@ export const SPLIT_DAYS: Record<SplitId, number[]> = {
   full_body: [2, 3, 4], upper_lower: [2, 4], ppl: [3, 6], ulppl: [5],
 };
 
+export const MUSCLE_NAMES: Record<Muscle, string> = {
+  chest: 'Chest', back: 'Back', shoulders: 'Shoulders', quads: 'Quads', hamstrings: 'Hamstrings',
+  glutes: 'Glutes', biceps: 'Biceps', triceps: 'Triceps', calves: 'Calves',
+};
+
 export const REST_WHY: Explanation = {
   text: 'Rest about 90 seconds on single-joint lifts and 2.5 minutes on big compound lifts. Resting over 60 seconds showed a small growth benefit with little difference past 90 seconds; for heavy compounds, 3 minutes beat 1 minute for strength and size in trained men.',
   label: 'principle',
@@ -43,9 +48,21 @@ export function recommendSplit(days: number): SplitId {
   return 'ppl';
 }
 
-// PRD starting volume: beginner 6-10, intermediate 10-16, advanced 12-20 sets/muscle/week.
-const BASE_WEEKLY_SETS: Record<Experience, number> = { beginner: 8, intermediate: 12, advanced: 14 };
-const MINUTES_PER_SET = 3; // working set + rest; RepProof rule
+const BIG: Muscle[] = ['back', 'chest', 'quads', 'hamstrings', 'glutes'];
+
+// Founder rule (2026-10-04): 1-3 working sets per exercise, never more.
+// 3 for weak points that need emphasis, 1 for strong points, 2 for everything else.
+export const MAX_SETS = 3;
+export function setsFor(m: Muscle, profile: Pick<Profile, 'weak' | 'strong'>): number {
+  if (profile.weak?.includes(m)) return 3;
+  if (profile.strong?.includes(m)) return 1;
+  return 2;
+}
+
+// Session time model (RepProof rule): warm-up set ~1.5 min, each working set to failure + rest ~3 min.
+const WARMUP_MINUTES = 1.5;
+const MINUTES_PER_SET = 3;
+export const exerciseMinutes = (sets: number) => WARMUP_MINUTES + sets * MINUTES_PER_SET;
 
 export function repRange(goal: Goal, compound: boolean): [number, number] {
   if (!compound) return [8, 12];
@@ -54,14 +71,18 @@ export function repRange(goal: Goal, compound: boolean): [number, number] {
   return [6, 10];
 }
 
-function rirTarget(experience: Experience): number {
-  return experience === 'beginner' ? 3 : 2;
+// Working sets go to failure; beginners stop one rep short while they learn the lifts (safety call).
+export function rirTarget(experience: Experience): number {
+  return experience === 'beginner' ? 1 : 0;
 }
 
 export function buildProgram(profile: Profile, split: SplitId = recommendSplit(profile.days)): Program {
   const cycle = SPLIT_CYCLE[split];
   const dayTemplates = Array.from({ length: profile.days }, (_, i) => cycle[i % cycle.length]);
+  const pool = available(profile.setup, profile.avoid);
+  const emphasis = { weak: profile.weak ?? [], strong: (profile.strong ?? []).filter((m) => !profile.weak?.includes(m)) };
   const explanations: Explanation[] = [];
+  let trimmed = false;
 
   explanations.push({
     text: `${SPLIT_NAMES[split]} over ${profile.days} days. When weekly sets are equal, how often you train a muscle made no meaningful difference to growth across 25 studies, so the split is about fitting your schedule.`,
@@ -69,50 +90,81 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
     refIds: ['frequency_meta', 'frequency_2v3', 'frequency_3v6'],
   });
 
-  // 1. Volume allocator. Sets are handed out one at a time, rotating through muscles; each set goes
-  // to the least-loaded session that trains that muscle. Busy days fill first and quieter days
-  // (e.g. Pull in a 5-day split) absorb the rest, until each muscle hits the target or sessions are full.
-  const pool = available(profile.setup, profile.avoid);
-  const trainable = MUSCLES.filter((m) => pool.some((e) => e.muscle === m));
-  const base = BASE_WEEKLY_SETS[profile.experience];
-  const sessionCap = Math.floor(profile.sessionMinutes / MINUTES_PER_SET);
-  // At most 2 exercises x 5 sets per muscle per session; fewer when the pool has one exercise.
-  const perSessionMax = (m: Muscle) => 5 * Math.min(2, pool.filter((e) => e.muscle === m).length);
-  const alloc: Partial<Record<Muscle, number>>[] = dayTemplates.map(() => ({}));
-  const load = dayTemplates.map(() => 0);
-  const given = Object.fromEntries(trainable.map((m) => [m, 0])) as Record<Muscle, number>;
-  for (let progress = true; progress;) {
-    progress = false;
+  // One exercise per muscle per session, 1-3 working sets each. On short days (3 muscles or fewer,
+  // e.g. Pull) big muscles get a second exercise with a different movement (row + pulldown).
+  const seen: Partial<Record<Muscle, number>> = {};
+  const days: PlannedDay[] = dayTemplates.map((t) => {
+    const trainable = t.muscles.filter((m) => pool.some((e) => e.muscle === m));
+    const slots: { m: Muscle; sets: number; second: boolean }[] = [];
     for (const m of trainable) {
-      if (given[m] >= base) continue;
-      let best = -1;
-      dayTemplates.forEach((d, i) => {
-        if (!d.muscles.includes(m) || load[i] >= sessionCap || (alloc[i][m] ?? 0) >= perSessionMax(m)) return;
-        const better = best === -1 || load[i] < load[best]
-          || (load[i] === load[best] && (alloc[i][m] ?? 0) < (alloc[best][m] ?? 0));
-        if (better) best = i;
-      });
-      if (best === -1) continue;
-      alloc[best][m] = (alloc[best][m] ?? 0) + 1;
-      load[best]++;
-      given[m]++;
-      progress = true;
+      slots.push({ m, sets: setsFor(m, emphasis), second: false });
+      if (trainable.length <= 3 && BIG.includes(m) && pool.filter((e) => e.muscle === m).length > 1) {
+        slots.push({ m, sets: setsFor(m, emphasis), second: true });
+      }
     }
-  }
-  const weeklySets: Partial<Record<Muscle, number>> = {};
-  for (const m of trainable) if (given[m]) weeklySets[m] = given[m];
+    const minutes = () => slots.reduce((a, x) => a + exerciseMinutes(x.sets), 0);
+    // Fit the session length: drop second exercises first, then take a set from regular muscles
+    // (smallest muscles first), then from weak points. Strong points are already at 1 set.
+    for (let i = slots.length - 1; i >= 0 && minutes() > profile.sessionMinutes; i--) {
+      if (slots[i].second) {
+        slots.splice(i, 1);
+        trimmed = true;
+      }
+    }
+    for (const pass of ['regular', 'weak'] as const) {
+      for (let changed = true; changed && minutes() > profile.sessionMinutes;) {
+        changed = false;
+        for (let i = slots.length - 1; i >= 0 && minutes() > profile.sessionMinutes; i--) {
+          if ((pass === 'weak') === emphasis.weak.includes(slots[i].m) && slots[i].sets > 1) {
+            slots[i].sets--;
+            trimmed = changed = true;
+          }
+        }
+      }
+    }
+    const picked: { ex: Exercise; sets: number }[] = [];
+    for (const { m, sets, second } of slots) {
+      const candidates = rankCandidates(pool.filter((e) => e.muscle === m), profile.experience);
+      if (second) {
+        const first = picked.find((p) => p.ex.muscle === m)!.ex;
+        const other = candidates.find((e) => e.id !== first.id && e.pattern !== first.pattern) ?? candidates.find((e) => e.id !== first.id)!;
+        picked.push({ ex: other, sets });
+        continue;
+      }
+      const nth = seen[m] ?? 0;
+      seen[m] = nth + 1;
+      picked.push({ ex: candidates[nth % candidates.length], sets });
+    }
+    picked.sort((a, b) => Number(b.ex.compound) - Number(a.ex.compound));
+    const exercises: PlannedExercise[] = picked.map(({ ex, sets }) => {
+      const [repMin, repMax] = repRange(profile.goal, ex.compound);
+      return { exerciseId: ex.id, sets, repMin, repMax, rirTarget: rirTarget(profile.experience) };
+    });
+    return { name: t.name, exercises };
+  });
 
+  // "Full body A", "Full body B"... when a day name repeats in the week
+  const names = days.map((d) => d.name);
+  days.forEach((d, i) => {
+    const same = names.filter((n) => n === names[i]).length;
+    if (same > 1) d.name = `${names[i]} ${'ABCDEF'[names.slice(0, i).filter((n) => n === names[i]).length]}`;
+  });
+
+  const weeklySets: Partial<Record<Muscle, number>> = {};
+  for (const d of days) for (const e of d.exercises) {
+    const m = pool.find((x) => x.id === e.exerciseId)!.muscle;
+    weeklySets[m] = (weeklySets[m] ?? 0) + e.sets;
+  }
+
+  const list = (ms: Muscle[]) => ms.map((m) => MUSCLE_NAMES[m].toLowerCase()).join(', ');
   explanations.push({
-    text: `Starting at about ${base} hard sets per muscle per week for your experience level. More weekly sets tends to mean more growth, but no study has found one best number, so the exact start is our choice.`,
-    label: 'principle',
+    text: `1 to 3 hard sets per exercise, plus a warm-up set: 2 by default${emphasis.weak.length ? `, 3 for your weak points (${list(emphasis.weak)})` : ', 3 for weak points'}${emphasis.strong.length ? `, 1 for your strong points (${list(emphasis.strong)})` : ', 1 for strong points'}. Fewer, harder sets keep fatigue in check. On average, more weekly sets meant more growth, which is why weak points get the extra set; the exact numbers are our choice.`,
+    label: 'rule',
     refIds: ['volume_dose'],
   });
-  const counts = Object.values(weeklySets) as number[];
-  const low = Math.min(...counts);
-  const high = Math.max(...counts);
-  if (low < base) {
+  if (trimmed) {
     explanations.push({
-      text: `Trimmed to ${low === high ? low : `${low}-${high}`} sets per muscle so each session fits in ${profile.sessionMinutes} minutes (about ${MINUTES_PER_SET} minutes per set including rest).`,
+      text: `Some sets were cut so each session fits in ${profile.sessionMinutes} minutes (about ${MINUTES_PER_SET} minutes per hard set and ${WARMUP_MINUTES} per warm-up). Weak points keep their sets longest.`,
       label: 'rule',
       refIds: [],
     });
@@ -125,37 +177,6 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
       refIds: [],
     });
   }
-
-  // 2. Split distributor + 3. exercise selector
-  const seen: Partial<Record<Muscle, number>> = {};
-  const days: PlannedDay[] = dayTemplates.map((t, dayIndex) => {
-    const picked: { ex: Exercise; sets: number }[] = [];
-    for (const m of t.muscles) {
-      const perDay = alloc[dayIndex][m] ?? 0;
-      if (!perDay) continue;
-      const nth = seen[m] ?? 0;
-      seen[m] = nth + 1;
-      const candidates = rankCandidates(pool.filter((e) => e.muscle === m), profile.experience);
-      const count = perDay > 4 && candidates.length > 1 ? 2 : 1;
-      for (let k = 0; k < count; k++) {
-        const ex = candidates[(nth * count + k) % candidates.length];
-        picked.push({ ex, sets: Math.ceil(perDay / count) - (k === 1 && perDay % 2 ? 1 : 0) });
-      }
-    }
-    picked.sort((a, b) => Number(b.ex.compound) - Number(a.ex.compound));
-    const exercises: PlannedExercise[] = picked.map(({ ex, sets }) => {
-      const [repMin, repMax] = repRange(profile.goal, ex.compound);
-      return { exerciseId: ex.id, sets, repMin, repMax, rirTarget: rirTarget(profile.experience) };
-    });
-    return { name: t.name, exercises };
-  });
-  // "Full body A", "Full body B"... when a day name repeats in the week
-  const names = days.map((d) => d.name);
-  days.forEach((d, i) => {
-    const same = names.filter((n) => n === names[i]).length;
-    if (same > 1) d.name = `${names[i]} ${'ABCDEF'[names.slice(0, i).filter((n) => n === names[i]).length]}`;
-  });
-
   explanations.push({
     text: profile.goal === 'muscle'
       ? 'Reps mostly 6 to 12. Muscle grows similarly across light and heavy loads, so the range is about practicality: heavy enough to track, light enough to recover.'
@@ -164,18 +185,15 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
     refIds: ['load_meta'],
   });
   explanations.push({
-    text: `Sets stop about ${rirTarget(profile.experience)} reps short of failure. Going to failure was not needed for strength or size gains on average; trained lifters saw a small extra benefit, so the target is our trade-off between results and recovery.`,
+    text: rirTarget(profile.experience) === 0
+      ? 'Every working set goes to failure: the last rep you can complete with good form. Failure was not required for growth on average, but trained lifters saw a small extra size benefit, and with only 1 to 3 sets each one should count.'
+      : 'Working sets stop 1 rep short of failure while you learn the lifts; going all the way to failure adds risk before your technique is solid. Failure was not required for growth on average.',
     label: 'principle',
     refIds: ['failure'],
   });
-  explanations.push({
-    text: 'Guessing reps left is imperfect, but it gets more accurate with heavier loads and closer to failure. Trained lifters were off by under one rep on average on the bench press.',
-    label: 'principle',
-    refIds: ['rir_accuracy', 'rir_bench'],
-  });
   explanations.push(REST_WHY);
 
-  return { split, weeklySets, days, explanations };
+  return { split, weeklySets, days, explanations, emphasis };
 }
 
 // Beginners get easier lifts first; otherwise library order (compounds lead).

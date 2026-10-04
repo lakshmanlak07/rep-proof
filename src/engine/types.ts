@@ -41,6 +41,8 @@ export type Profile = {
   sessionMinutes: number;
   unit: Unit;
   avoid: Pattern[];
+  weak?: Muscle[]; // weak points: 3 sets per exercise
+  strong?: Muscle[]; // strong points: 1 set per exercise
 };
 
 export type PlannedExercise = {
@@ -62,6 +64,7 @@ export type Program = {
   weeklySets: Partial<Record<Muscle, number>>;
   days: PlannedDay[];
   explanations: Explanation[];
+  emphasis?: { weak: Muscle[]; strong: Muscle[] }; // kept with the plan so rebuilds remember it
 };
 
 export type LoggedSet = { weight: number; reps: number; rir: number | null };

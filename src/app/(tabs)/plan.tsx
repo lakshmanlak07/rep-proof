@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { Modal, Pressable, View } from 'react-native';
 
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
-import { MUSCLES, recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
+import { MUSCLE_NAMES, MUSCLES, recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
 import type { PlannedExercise, SplitId } from '@/engine/types.ts';
 import { isDeload, localDate, saveProgram, toProfile, track, updatePlan, updateProfile, useData } from '@/lib/data';
 import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
@@ -39,7 +39,7 @@ export default function Plan() {
     const saved = await attempt(async () => {
       await updateProfile(profile!.id, { days });
       // Logged weights carry over: suggestions read history by exercise, not by program.
-      await saveProgram(toProfile({ ...profile!, days }), split, 0);
+      await saveProgram(toProfile({ ...profile!, days }, plan.emphasis), split, 0);
     }, 'rebuild your plan');
     if (!saved) return;
     track('schedule_changed', { days, split });
@@ -62,6 +62,12 @@ export default function Plan() {
     <Screen edges={['top']}>
       <T size="xl">Your plan</T>
       <T muted>{SPLIT_NAMES[plan.split]} · {plan.days.length} days a week · {profile.session_minutes} min sessions</T>
+      {plan.emphasis?.weak.length || plan.emphasis?.strong.length ? (
+        <T muted size="sm">
+          {plan.emphasis.weak.length ? `Weak points (3 sets): ${plan.emphasis.weak.map((m) => MUSCLE_NAMES[m]).join(', ')}. ` : ''}
+          {plan.emphasis.strong.length ? `Strong points (1 set): ${plan.emphasis.strong.map((m) => MUSCLE_NAMES[m]).join(', ')}.` : ''}
+        </T>
+      ) : null}
       <T muted size="sm">Tap an exercise to pin its sets or reps.</T>
 
       {plan.days.map((d, i) => (
@@ -135,10 +141,10 @@ function PinSheet({ e, onSave, onClose }: { e: PlannedExercise; onSave: (p: Pick
         <T size="lg">{EXERCISE_BY_ID[e.exerciseId].name}</T>
         <T muted size="sm">Pinned values stay fixed; the app keeps adjusting the weight. Leave blank to let the app decide.</T>
         <View style={s.row}>
-          <View style={{ flex: 1 }}><Field label={`Sets (plan: ${e.sets})`} keyboardType="number-pad" value={sets} onChangeText={setSets} /></View>
+          <View style={{ flex: 1 }}><Field label={`Sets, 1-3 (plan: ${e.sets})`} keyboardType="number-pad" value={sets} onChangeText={setSets} /></View>
           <View style={{ flex: 1 }}><Field label={`Reps (plan: ${e.repMin}–${e.repMax})`} keyboardType="number-pad" value={reps} onChangeText={setReps} /></View>
         </View>
-        <Button kind="primary" title="Save" onPress={() => onSave({ pinnedSets: num(sets, 10), pinnedReps: num(reps, 30) })} />
+        <Button kind="primary" title="Save" onPress={() => onSave({ pinnedSets: num(sets, 3), pinnedReps: num(reps, 30) })} />
         <Button kind="ghost" title="Unpin both" onPress={() => onSave({ pinnedSets: undefined, pinnedReps: undefined })} />
       </Card>
     </>

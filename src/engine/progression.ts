@@ -94,7 +94,7 @@ export function applyPins(s: Suggestion, plan: PlannedExercise): Suggestion {
   if (plan.pinnedSets === undefined && plan.pinnedReps === undefined) return s;
   return {
     ...s,
-    sets: plan.pinnedSets ?? s.sets,
+    sets: Math.min(3, plan.pinnedSets ?? s.sets), // founder rule: never more than 3 working sets
     reps: plan.pinnedReps ?? s.reps,
     explanation: { ...s.explanation, text: `${s.explanation.text} You pinned ${[plan.pinnedSets !== undefined && `${plan.pinnedSets} sets`, plan.pinnedReps !== undefined && `${plan.pinnedReps} reps`].filter(Boolean).join(' and ')}, so the app keeps that.` },
   };
@@ -123,17 +123,16 @@ export function adjustForDay(s: Suggestion, lastWeight: number | null, opts: { b
   return s;
 }
 
-// Warm-up ramp before the first compound: bar x10, 50% x5, 80% x3. Last step at 80% follows Viveiros 2024.
+// One warm-up set before every exercise: ~80% of the working weight for 5 reps (Viveiros 2024 protocol).
 export const WARMUP_WHY: Explanation = {
-  text: 'Warm-up: the bar, then about half, then about 80% of your working weight. A warm-up at 80% of the working load led to more total reps than lighter warm-ups in one small study of 15 trained men. The exact steps are our choice.',
+  text: 'One warm-up set before every exercise: about 80% of your working weight for 5 reps. In a study of 15 trained men, a warm-up at 80% of the working load led to more total reps than lighter warm-ups.',
   label: 'principle',
   refIds: ['warmup'],
 };
 
-export function warmup(workWeight: number, unit: Unit, barWeight = unit === 'kg' ? 20 : 45): { weight: number; reps: number }[] {
-  return [
-    { weight: barWeight, reps: 10 },
-    { weight: Math.max(barWeight, round(workWeight * 0.5, unit)), reps: 5 },
-    { weight: Math.max(barWeight, round(workWeight * 0.8, unit)), reps: 3 },
-  ];
+/** The warm-up set for an exercise; barbell lifts never go below the empty bar. */
+export function warmup(workWeight: number, unit: Unit, barbell = false): { weight: number; reps: number } {
+  const bar = unit === 'kg' ? 20 : 45;
+  const weight = round(workWeight * 0.8, unit);
+  return { weight: barbell ? Math.max(bar, weight) : weight, reps: 5 };
 }

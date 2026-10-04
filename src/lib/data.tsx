@@ -26,8 +26,10 @@ export type ProfileRow = {
 };
 export type ProgramRow = { id: string; split: SplitId; plan: Program; next_day: number };
 
-export const toProfile = (r: ProfileRow): Profile => ({
+/** Engine profile from the DB row; weak/strong points live with the plan (Program.emphasis). */
+export const toProfile = (r: ProfileRow, emphasis?: Program['emphasis']): Profile => ({
   experience: r.experience, goal: r.goal, setup: r.setup, days: r.days, sessionMinutes: r.session_minutes, unit: r.unit, avoid: r.avoid,
+  weak: emphasis?.weak ?? [], strong: emphasis?.strong ?? [],
 });
 
 type Ctx = {

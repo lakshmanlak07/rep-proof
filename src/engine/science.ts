@@ -17,7 +17,7 @@ export const TOPICS: Topic[] = [
     label: 'principle',
     shows: 'More hard sets per muscle per week tends to mean more growth.',
     doesNotShow: 'One best number for everyone. Comparisons of under 5, 5-9 and 10+ sets were only a trend.',
-    inApp: 'You start at about 8, 12 or 14 sets per muscle by experience, trimmed to fit your session length.',
+    inApp: '1 to 3 hard sets per exercise: 2 by default, 3 for weak points you choose, 1 for strong points. Fewer, harder sets keep fatigue down; weak points get the extra volume.',
     refIds: ['volume_dose'],
   },
   {
@@ -41,7 +41,7 @@ export const TOPICS: Topic[] = [
     label: 'principle',
     shows: 'Failure was not needed for strength or size on average. Trained lifters saw a small extra size benefit.',
     doesNotShow: 'That every set must go to failure, or that failure is harmful.',
-    inApp: 'Sets stop 2-3 reps short of failure: our trade-off between results and recovery.',
+    inApp: 'Working sets go to failure (beginners stop 1 rep short while learning the lifts). With only 1 to 3 sets, each set should count.',
     refIds: ['failure'],
   },
   {
@@ -89,7 +89,7 @@ export const TOPICS: Topic[] = [
     label: 'principle',
     shows: 'In 15 trained men, a warm-up at 80% of the working load led to more total reps than lighter warm-ups.',
     doesNotShow: 'One required warm-up sequence.',
-    inApp: 'Before your first barbell lift: the bar, about half, then about 80% of your working weight.',
+    inApp: 'One warm-up set before every exercise: about 80% of your working weight for 5 reps.',
     refIds: ['warmup'],
   },
   {
