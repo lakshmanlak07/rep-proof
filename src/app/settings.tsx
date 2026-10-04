@@ -44,6 +44,7 @@ export default function Settings() {
         <T bold>Disclaimer</T>
         <T muted>{DISCLAIMER}</T>
       </Card>
+      <Button title="Edit training profile" onPress={() => router.push('/training')} />
       <Button title="The science behind RepProof" onPress={() => router.push('/science')} />
       {FEEDBACK_EMAIL ? (
         <Button title="Send feedback" onPress={() => Linking.openURL(`mailto:${FEEDBACK_EMAIL}?subject=RepProof%20beta%20feedback`)} />

@@ -176,6 +176,20 @@ export async function updateProfile(id: string, patch: Partial<ProfileRow>) {
   ok(await supabase.from('profiles').update(patch).eq('id', id));
 }
 
+export type WeighIn = { weight: number; logged_on: string };
+
+/** Today's bodyweight (one per day; logging again replaces it). Also updates the profile, which drives nutrition targets. */
+export async function logBodyweight(profileId: string, weight: number) {
+  ok(await supabase.from('bodyweight_logs').upsert({ weight, logged_on: localDate() }, { onConflict: 'user_id,logged_on' }));
+  await updateProfile(profileId, { bodyweight: weight });
+}
+
+/** Last `n` weigh-ins, oldest first. */
+export async function bodyweightHistory(n = 30): Promise<WeighIn[]> {
+  const rows = must(await supabase.from('bodyweight_logs').select('weight, logged_on').order('logged_on', { ascending: false }).limit(n));
+  return rows.map((r) => ({ weight: Number(r.weight), logged_on: r.logged_on as string })).reverse();
+}
+
 export { must, ok };
 
 /** Local calendar date, YYYY-MM-DD. */

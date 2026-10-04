@@ -91,6 +91,7 @@ export default function Plan() {
       {plan.explanations.map((e, i) => <Card key={i}><WhyBody e={e} /></Card>)}
 
       <Button title="The science behind RepProof" onPress={() => router.push('/science')} />
+      <Button title="Edit training profile" onPress={() => router.push('/training')} />
       <Button title="Change days or split" onPress={() => setSchedule({ days: profile.days, split: plan.split })} />
       <Button title={deload ? `End deload (until ${profile.deload_until})` : 'Start a deload week'} onPress={toggleDeload} />
 

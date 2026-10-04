@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
 import { MUSCLES } from '@/engine/plan.ts';
 import type { Muscle } from '@/engine/types.ts';
-import { localDate, must, ok, startOfWeek, track, useData } from '@/lib/data';
+import { bodyweightHistory, localDate, logBodyweight, must, ok, startOfWeek, track, useData, type WeighIn } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
 import { attempt } from '@/lib/alert';
 import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
@@ -17,7 +17,7 @@ type Cardio = { id: string; kind: string; minutes: number; intensity: string; lo
 const CARDIO_KINDS = ['Walk', 'Run', 'Bike', 'Row', 'Other'];
 
 export default function Progress() {
-  const { profile } = useData();
+  const { profile, refresh } = useData();
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [sets, setSets] = useState<SetRow[]>([]);
@@ -26,6 +26,8 @@ export default function Progress() {
   const [kind, setKind] = useState('Walk');
   const [minutes, setMinutes] = useState('');
   const [intensity, setIntensity] = useState<'easy' | 'moderate' | 'hard'>('moderate');
+  const [weighIns, setWeighIns] = useState<WeighIn[] | null>(null); // null = not available (e.g. migration 3 not applied)
+  const [weight, setWeight] = useState('');
 
   const load = useCallback(async () => {
     const w = must(await supabase.from('workouts').select('id, day_name, finished_at, logged_sets(count)')
@@ -36,6 +38,8 @@ export default function Progress() {
     setSets(x.map((r) => ({ ...r, weight: Number(r.weight) })) as SetRow[]);
     const c = must(await supabase.from('cardio_logs').select('id, kind, minutes, intensity, logged_on').order('created_at', { ascending: false }).limit(10));
     setCardio(c as Cardio[]);
+    // Separate so a missing bodyweight table never blocks the rest of the screen.
+    bodyweightHistory().then(setWeighIns).catch(() => setWeighIns(null));
   }, []);
 
   const reload = useCallback(() => {
@@ -43,6 +47,16 @@ export default function Progress() {
     load().catch(() => setLoadFailed(true));
   }, [load]);
   useFocusEffect(reload);
+
+  async function addWeight() {
+    if (!profile) return;
+    const id = profile.id;
+    const value = Number(weight);
+    if (!(await attempt(() => logBodyweight(id, value), 'log your bodyweight'))) return;
+    track('bodyweight_logged');
+    setWeight('');
+    await Promise.all([load(), refresh()]); // profile bodyweight drives nutrition targets
+  }
 
   async function addCardio() {
     const saved = await attempt(async () => {
@@ -70,8 +84,6 @@ export default function Progress() {
     }
     trend.push(...[...bySession.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-12));
   }
-  const max = Math.max(1, ...trend.map((p) => p.w));
-  const min = Math.min(...trend.map((p) => p.w), max);
 
   const week = startOfWeek();
   const weekSets: Partial<Record<Muscle, number>> = {};
@@ -104,21 +116,23 @@ export default function Progress() {
             ))}
           </ScrollView>
           <T muted size="sm">Top weight per session ({profile?.unit}), last {trend.length}</T>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 140, gap: 4 }}
-            accessibilityLabel={`${name(shown)} top weights: ${trend.map((p) => p.w).join(', ')}`}>
-            {trend.map((p, i) => {
-              // Scale bars between 25% and 100% so small changes stay visible; labels carry the real numbers.
-              const h = max === min ? 100 : 25 + (75 * (p.w - min)) / (max - min);
-              return (
-                <View key={i} style={{ flex: 1, alignItems: 'center', gap: 4 }}>
-                  <T size="sm" muted>{p.w}</T>
-                  <View style={{ width: '100%', height: (110 * h) / 100, backgroundColor: i === trend.length - 1 ? C.accent : C.border, borderRadius: 4 }} />
-                </View>
-              );
-            })}
-          </View>
+          <BarTrend values={trend.map((p) => p.w)} label={`${name(shown)} top weights`} />
         </Card>
       ) : null}
+
+      <Card>
+        <T bold>Bodyweight ({profile?.unit})</T>
+        {weighIns === null ? <T muted size="sm">Bodyweight tracking needs the latest database update (see README, migration 3).</T> : null}
+        {weighIns?.length ? (<>
+          <T muted size="sm">Last {Math.min(12, weighIns.length)} weigh-ins · latest {weighIns[weighIns.length - 1].weight} on {weighIns[weighIns.length - 1].logged_on}</T>
+          <BarTrend values={weighIns.slice(-12).map((x) => x.weight)} label="Bodyweight" />
+        </>) : null}
+        <View style={s.row}>
+          <View style={{ flex: 1 }}><Field placeholder={`Today, e.g. ${profile?.bodyweight ?? 75}`} keyboardType="decimal-pad" value={weight} onChangeText={setWeight} /></View>
+          <Button kind="primary" title="Log" disabled={!(Number(weight) > 20 && Number(weight) <= 700)} onPress={addWeight} />
+        </View>
+        <T muted size="sm">Updates your nutrition targets. Weigh at the same time of day; the trend matters more than any single day.</T>
+      </Card>
 
       {Object.keys(weekSets).length ? (
         <Card>
@@ -171,5 +185,24 @@ export default function Progress() {
         </Card>
       ))}
     </Screen>
+  );
+}
+
+/** Bars scaled between 25% and 100% so small changes stay visible; labels carry the real numbers. Latest bar highlighted. */
+function BarTrend({ values, label }: { values: number[]; label: string }) {
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 140, gap: 4 }} accessibilityLabel={`${label}: ${values.join(', ')}`}>
+      {values.map((v, i) => {
+        const h = max === min ? 100 : 25 + (75 * (v - min)) / (max - min);
+        return (
+          <View key={i} style={{ flex: 1, alignItems: 'center', gap: 4 }}>
+            <T size="sm" muted>{v}</T>
+            <View style={{ width: '100%', height: (110 * h) / 100, backgroundColor: i === values.length - 1 ? C.accent : C.border, borderRadius: 4 }} />
+          </View>
+        );
+      })}
+    </View>
   );
 }

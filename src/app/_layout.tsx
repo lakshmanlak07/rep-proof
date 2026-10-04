@@ -30,6 +30,7 @@ function Routes() {
         <Stack.Screen name="settings" options={{ headerShown: true, title: 'Settings' }} />
         <Stack.Screen name="food" options={{ headerShown: true, title: 'Add food' }} />
         <Stack.Screen name="science" options={{ headerShown: true, title: 'The science' }} />
+        <Stack.Screen name="training" options={{ headerShown: true, title: 'Training profile' }} />
       </Stack.Protected>
     </Stack>
   );

@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 
-import { AVOIDABLE } from '@/engine/exercises.ts';
 import { recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
 import type { Experience, Goal, Pattern, Setup, SplitId, Unit } from '@/engine/types.ts';
 import { ok, saveProgram, toProfile, track, useData, type ProfileRow } from '@/lib/data';
 import { clearPending, getPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
+import { AVOID_OPTIONS, EXPERIENCE_OPTIONS, GOAL_OPTIONS, MINUTE_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
 import { Button, C, Choice, Field, Screen, T } from '@/ui';
 
 const STEPS = ['experience', 'setup', 'goal', 'days', 'minutes', 'body', 'height', 'sex', 'avoid', 'split'] as const;
@@ -49,6 +49,8 @@ export default function Onboarding() {
       };
       ok(await supabase.from('profiles').upsert(row));
       await saveProgram(toProfile({ ...row, plan_tier: 'free', deload_until: null }), chosen);
+      // First point of the bodyweight trend; best effort (table arrives with migration 3).
+      await supabase.from('bodyweight_logs').upsert({ weight: row.bodyweight }, { onConflict: 'user_id,logged_on' });
       clearPending();
       track('onboarding_done', { experience, setup, goal, days, split: chosen });
       await refresh();
@@ -76,26 +78,15 @@ export default function Onboarding() {
       {progress}
       {name === 'experience' && (<>
         <T size="lg">How long have you been lifting consistently?</T>
-        <Choice value={experience} onChange={pick(setExperience)} options={[
-          { value: 'beginner', label: 'Beginner', hint: 'Under about a year' },
-          { value: 'intermediate', label: 'Intermediate', hint: '1 to 3 years' },
-          { value: 'advanced', label: 'Advanced', hint: 'More than 3 years' },
-        ]} />
+        <Choice value={experience} onChange={pick(setExperience)} options={EXPERIENCE_OPTIONS} />
       </>)}
       {name === 'setup' && (<>
         <T size="lg">Where do you train?</T>
-        <Choice value={setup} onChange={pick(setSetup)} options={[
-          { value: 'commercial', label: 'Commercial gym', hint: 'Machines, cables, free weights' },
-          { value: 'home', label: 'Home gym', hint: 'Barbell, rack, dumbbells, bench' },
-        ]} />
+        <Choice value={setup} onChange={pick(setSetup)} options={SETUP_OPTIONS} />
       </>)}
       {name === 'goal' && (<>
         <T size="lg">What is your main goal?</T>
-        <Choice value={goal} onChange={pick(setGoal)} options={[
-          { value: 'muscle', label: 'Build muscle' },
-          { value: 'strength', label: 'Get stronger' },
-          { value: 'both', label: 'Both' },
-        ]} />
+        <Choice value={goal} onChange={pick(setGoal)} options={GOAL_OPTIONS} />
       </>)}
       {name === 'days' && (<>
         <T size="lg">How many days a week can you train?</T>
@@ -104,7 +95,7 @@ export default function Onboarding() {
       </>)}
       {name === 'minutes' && (<>
         <T size="lg">How long is each session?</T>
-        <Choice value={minutes} onChange={pick(setMinutes)} options={[30, 45, 60, 75, 90].map((m) => ({ value: m, label: `${m} minutes` }))} />
+        <Choice value={minutes} onChange={pick(setMinutes)} options={MINUTE_OPTIONS} />
       </>)}
       {name === 'body' && (<>
         <T size="lg">Your bodyweight</T>
@@ -137,7 +128,7 @@ export default function Onboarding() {
         <T size="lg">Any movements to leave out?</T>
         <T muted>Tick any you want out of your plan. You can change this later.</T>
         <Choice value={avoid} onChange={(p) => setAvoid(avoid.includes(p) ? avoid.filter((x) => x !== p) : [...avoid, p])}
-          options={AVOIDABLE.map((a) => ({ value: a.pattern, label: a.label }))} />
+          options={AVOID_OPTIONS} />
         <Button kind="primary" title={avoid.length ? 'Continue' : 'None, continue'} onPress={next} />
       </>)}
       {name === 'split' && days && (<>

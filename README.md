@@ -9,7 +9,9 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 ## Setup (Windows)
 
 1. Supabase project → SQL Editor → run each file in `supabase/migrations/` in name order.
-   The beta project already has `20261001000000_initial.sql`; it still needs `20261002000000_hardening.sql`.
+   The beta project already has `20261001000000_initial.sql`; it still needs
+   `20261002000000_hardening.sql` (security) and `20261004000000_bodyweight_and_metrics.sql` (bodyweight log, beta metric).
+   The app keeps working before they are applied: plan rebuilds fall back to two steps and the bodyweight card shows a notice.
 2. Authentication → Sign In / Providers → Email → turn off "Confirm email" (beta).
 3. Copy `.env.example` to `.env`; fill in Project URL and publishable key (Project Settings → API).
 4. Food search: get a free key at https://fdc.nal.usda.gov/api-key-signup, then:
@@ -31,3 +33,19 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 - Confirm DOIs for references without one in `src/engine/references.ts` (links appear once a DOI is set).
 - Review disclaimer (`src/lib/pending.ts`), exercise cues (`src/engine/exercises.ts`), nutrition cards (`src/engine/nutrition.ts`).
 - Set `FEEDBACK_EMAIL` in `src/app/settings.tsx`.
+
+## Backend (Supabase)
+
+| Piece | Where | Notes |
+| --- | --- | --- |
+| Auth | Supabase Auth, email + password | Age gate (18+) and disclaimer happen on-device before sign-up |
+| Data | `supabase/migrations` | Row-level security on every table; users only see their own rows |
+| Account deletion | `delete_account()` RPC | Cascades to all user data (App Store requirement) |
+| Plan replace | `replace_program()` RPC | Atomic; app falls back if migration 2 is not applied |
+| Food search | `supabase/functions/food` | Proxies USDA FoodData Central, key stays server-side, 30-day cache |
+| Beta metric | `select * from beta_week4_metric();` | Admin only (SQL Editor); week-4 retention from the PRD |
+| Analytics | `events` table | Insert-only from the app |
+
+## Checks
+
+`npm run typecheck`, `npm run lint`, `npm test`. GitHub Actions runs all three plus `deno check` on the food function for every push.
