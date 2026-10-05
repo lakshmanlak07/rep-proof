@@ -4,7 +4,7 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 
 - `src/engine/`: training and nutrition rules, pure TypeScript. Tests: `npm test`.
 - `src/app/`: screens. `src/lib/`: Supabase client and data access.
-- `supabase/migrations/`: database, versioned (run in name order). `supabase/functions/food/`: USDA food search proxy.
+- `supabase/migrations/`: database, versioned (run in name order). `supabase/functions/food/`: food search (USDA + Open Food Facts).
 
 ## Setup (Windows)
 
@@ -31,9 +31,9 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 
 ## Before release
 
-- Confirm DOIs for references without one in `src/engine/references.ts` (links appear once a DOI is set).
+- References in `src/engine/references.ts` were checked against PubMed on 2026-10-01; re-check any you add.
 - Review disclaimer (`src/lib/pending.ts`), exercise cues (`src/engine/exercises.ts`), nutrition cards (`src/engine/nutrition.ts`).
-- Set `FEEDBACK_EMAIL` in `src/app/settings.tsx`.
+- Read feedback and survey answers in the `feedback` table (migration 3).
 
 ## Backend (Supabase)
 
