@@ -280,7 +280,7 @@ test('home stats: week dots, streak, new bests', async () => {
 });
 
 test('plans record the engine version that built them', () => {
-  assert.equal(buildProgram(base).version, 6);
+  assert.equal(buildProgram(base).version, 7);
 });
 
 test('effort styles set per-set reps-in-reserve targets', async () => {
@@ -362,4 +362,17 @@ test('exercise selection quality: compound mains, no repeated movement, every mu
           if (d.name.startsWith('Pull')) assert.ok(ex.some((e) => e.pattern === 'rear_delt'), `${d.name}: no rear delts`);
         }
       }
+});
+
+test('exercise library: 200+, unique, complete, staples cover every muscle', async () => {
+  const { EXERCISES } = await import('./exercises.ts');
+  assert.ok(EXERCISES.length >= 200, `${EXERCISES.length} exercises`);
+  assert.equal(new Set(EXERCISES.map((e) => e.id)).size, EXERCISES.length, 'duplicate id');
+  for (const e of EXERCISES) {
+    assert.ok(e.cues.length >= 3 && e.name, `${e.id} incomplete`);
+    assert.ok(e.equipment.every((q) => SETUP_EQUIPMENT.commercial.includes(q)), `${e.id} uses equipment no gym setup has`);
+  }
+  for (const setup of ['commercial', 'home'] as const)
+    for (const m of MUSCLES)
+      assert.ok(EXERCISES.some((e) => e.staple !== false && e.muscle === m && e.equipment.every((q) => SETUP_EQUIPMENT[setup].includes(q))), `${setup}: no staple for ${m}`);
 });

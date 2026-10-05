@@ -3,10 +3,10 @@ import type {
   Effort, Exercise, Experience, Explanation, Goal, Muscle, Pattern, PlannedDay, PlannedExercise, Profile, Program, SplitId,
 } from './types.ts';
 
-export const MUSCLES: Muscle[] = ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'glutes', 'biceps', 'triceps', 'calves'];
+export const MUSCLES: Muscle[] = ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'glutes', 'biceps', 'triceps', 'calves', 'abs'];
 
 const UPPER: Muscle[] = ['chest', 'back', 'shoulders', 'biceps', 'triceps'];
-const LOWER: Muscle[] = ['quads', 'hamstrings', 'glutes', 'calves'];
+const LOWER: Muscle[] = ['quads', 'hamstrings', 'glutes', 'calves', 'abs'];
 const PUSH: Muscle[] = ['chest', 'shoulders', 'triceps'];
 
 // One cycle of each split; repeated to fill the week.
@@ -35,7 +35,7 @@ export const SPLIT_DAYS: Record<SplitId, number[]> = {
 
 export const MUSCLE_NAMES: Record<Muscle, string> = {
   chest: 'Chest', back: 'Back', shoulders: 'Shoulders', quads: 'Quads', hamstrings: 'Hamstrings',
-  glutes: 'Glutes', biceps: 'Biceps', triceps: 'Triceps', calves: 'Calves',
+  glutes: 'Glutes', biceps: 'Biceps', triceps: 'Triceps', calves: 'Calves', abs: 'Abs',
 };
 
 export const REST_WHY: Explanation = {
@@ -57,13 +57,14 @@ export function recommendSplit(days: number): SplitId {
 // 4 = sessions filled with second movements up to the time limit (max 8 exercises).
 // 5 = 49-exercise library, compound mains, distinct-pattern seconds, accessories skipped before sets are cut.
 // 6 = rear delts on pull days; every accessory kept at least once a week.
-export const ENGINE_VERSION = 6;
+// 7 = 200+ exercise library (staples build plans), abs trained on lower and full-body days.
+export const ENGINE_VERSION = 7;
 
 // Muscles that get a second movement first when a session has time (weak points always come before these).
 const SECOND_PRIORITY: Muscle[] = ['back', 'chest', 'shoulders', 'quads', 'hamstrings', 'biceps', 'triceps'];
 const ARMS: Muscle[] = ['biceps', 'triceps'];
 // Skipped first (one per session, rotating) when a session is too long for everything at full sets.
-const ACCESSORIES: Muscle[] = ['calves', 'glutes', 'triceps', 'biceps'];
+const ACCESSORIES: Muscle[] = ['abs', 'calves', 'glutes', 'triceps', 'biceps'];
 const MAX_EXERCISES = 8;
 
 // Founder rule (2026-10-04): 1-3 working sets per exercise, never more.
@@ -108,7 +109,7 @@ export function rirTarget(experience: Experience, effort: Effort = 'last_failure
 export function buildProgram(profile: Profile, split: SplitId = recommendSplit(profile.days)): Program {
   const cycle = SPLIT_CYCLE[split];
   const dayTemplates = Array.from({ length: profile.days }, (_, i) => cycle[i % cycle.length]);
-  const pool = available(profile.setup, profile.avoid);
+  const pool = available(profile.setup, profile.avoid).filter((e) => e.staple !== false); // plans use staples
   const emphasis = { weak: profile.weak ?? [], strong: (profile.strong ?? []).filter((m) => !profile.weak?.includes(m)) };
   const effort: Effort = profile.effort ?? 'last_failure';
   const targets = effortTargets(effort, profile.experience);

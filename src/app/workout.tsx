@@ -41,6 +41,8 @@ type Summary = {
 };
 
 const KEY = 'draft_workout';
+// Bodyweight movements log added load (belt, vest or dumbbell); 0 = bodyweight only.
+const isBodyweight = (id: string) => ['bodyweight', 'pullup_bar', 'dip_station'].some((q) => EXERCISE_BY_ID[id].equipment.includes(q as never));
 
 const short = (n: number) => (n === 0 ? 'to failure' : `${n} rep${n > 1 ? 's' : ''} short of failure`);
 /** "last set to failure, others 2 reps short of failure", or one phrase when all sets share a target. */
@@ -113,7 +115,7 @@ export default function Workout() {
       planned, exerciseId, history: h, prevBest, suggestion: sug,
       changed: sug.weight !== lastWeight || sug.sets !== planned.sets,
       sets: Array.from({ length: sug.sets }, (_, k) => ({
-        weight: sug.weight === null ? '' : String(sug.weight), reps: String(sug.reps),
+        weight: sug.weight === null ? (isBodyweight(exerciseId) ? '0' : '') : String(sug.weight), reps: String(sug.reps),
         rir: String(k === sug.sets - 1 ? planned.lastSetRir ?? planned.rirTarget : planned.rirTarget), done: false,
       })),
     };
@@ -478,7 +480,7 @@ export default function Workout() {
             <Why e={it.suggestion.explanation} changed={it.changed} />
           </View>
           <T muted>
-            {w === null ? 'Calibrate: pick your starting weight' : `Target ${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`}
+            {w === null ? (isBodyweight(it.exerciseId) ? 'Bodyweight: log added weight (0 if none)' : 'Calibrate: pick your starting weight') : `Target ${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`}
           </T>
           <T muted size="sm">{effortLabel(it.planned)}</T>
         </View>

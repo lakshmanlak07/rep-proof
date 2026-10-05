@@ -9,15 +9,18 @@ export type Setup = 'commercial' | 'home';
 
 export type Muscle =
   | 'chest' | 'back' | 'shoulders' | 'quads' | 'hamstrings'
-  | 'glutes' | 'biceps' | 'triceps' | 'calves';
+  | 'glutes' | 'biceps' | 'triceps' | 'calves' | 'abs';
 
 export type Pattern =
   | 'horizontal_push' | 'vertical_push' | 'horizontal_pull' | 'vertical_pull'
   | 'squat' | 'lunge' | 'hinge' | 'hip_thrust' | 'knee_extension' | 'knee_flexion'
-  | 'fly' | 'lateral_raise' | 'rear_delt' | 'pullover' | 'hip_abduction'
-  | 'elbow_flexion' | 'elbow_extension' | 'calf_raise';
+  | 'fly' | 'lateral_raise' | 'rear_delt' | 'pullover' | 'hip_abduction' | 'hip_extension' | 'shrug'
+  | 'elbow_flexion' | 'elbow_extension' | 'calf_raise'
+  | 'trunk_flexion' | 'hip_flexion' | 'anti_extension' | 'rotation';
 
-export type Equipment = 'barbell' | 'rack' | 'dumbbell' | 'bench' | 'machine' | 'cable';
+export type Equipment =
+  | 'barbell' | 'rack' | 'dumbbell' | 'bench' | 'machine' | 'cable'
+  | 'smith' | 'ez_bar' | 'kettlebell' | 'pullup_bar' | 'dip_station' | 'band' | 'trap_bar' | 'landmine' | 'bodyweight';
 
 // direct = a study tested this exact thing; principle = follows a studied principle;
 // rule = RepProof design choice with no direct study.
@@ -34,6 +37,7 @@ export type Exercise = {
   compound: boolean;
   difficulty: 1 | 2 | 3;
   cues: string[];
+  staple?: boolean; // false = library only (swaps, add exercise); plans are built from staples
 };
 
 export type Profile = {

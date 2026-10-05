@@ -12,6 +12,7 @@ const STRETCHES: Record<Muscle, string> = {
   biceps: 'Wall biceps stretch, 30 s per side',
   triceps: 'Overhead triceps stretch, 30 s per side',
   calves: 'Wall calf stretch, 30 s per side',
+  abs: 'Cobra stretch, 30 s',
 };
 
 export function cooldown(muscles: Muscle[]): string[] {

@@ -1,8 +1,9 @@
+import { EXTRA_EXERCISES } from './library.ts';
 import type { Equipment, Exercise, Pattern, Setup } from './types.ts';
 
-// Beta library: 32 exercises. Founder reviews every name and cue before release.
+// Staples: the exercises plans are built from. Founder reviews every name and cue before release.
 // Order inside a muscle matters: the selector prefers earlier entries.
-export const EXERCISES: Exercise[] = [
+const STAPLES: Exercise[] = [
   // Chest
   { id: 'bb_bench', name: 'Barbell bench press', muscle: 'chest', pattern: 'horizontal_push', equipment: ['barbell', 'bench', 'rack'], compound: true, difficulty: 2,
     cues: ['Shoulder blades pinched and down', 'Bar touches lower chest', 'Feet planted, press up and slightly back'] },
@@ -128,6 +129,9 @@ export const EXERCISES: Exercise[] = [
     cues: ['Pad on your lower thighs', 'Pause in the deep stretch', 'Rise as high as you can'] },
 ];
 
+/** Full library: staples plus the extended library (swaps, add exercise, library screen). */
+export const EXERCISES: Exercise[] = [...STAPLES, ...EXTRA_EXERCISES];
+
 export const EXERCISE_BY_ID: Record<string, Exercise> = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));
 
 // Movements a user can tick to avoid (onboarding + pain button).
@@ -145,8 +149,8 @@ export const AVOIDABLE: { pattern: Pattern; label: string }[] = [
 
 // PRD: home gym = barbell, rack, dumbbells. Bench assumed (founder to confirm).
 export const SETUP_EQUIPMENT: Record<Setup, Equipment[]> = {
-  commercial: ['barbell', 'rack', 'dumbbell', 'bench', 'machine', 'cable'],
-  home: ['barbell', 'rack', 'dumbbell', 'bench'],
+  commercial: ['barbell', 'rack', 'dumbbell', 'bench', 'machine', 'cable', 'smith', 'ez_bar', 'kettlebell', 'pullup_bar', 'dip_station', 'band', 'trap_bar', 'landmine', 'bodyweight'],
+  home: ['barbell', 'rack', 'dumbbell', 'bench', 'bodyweight'],
 };
 
 export function available(setup: Setup, avoid: Pattern[]): Exercise[] {

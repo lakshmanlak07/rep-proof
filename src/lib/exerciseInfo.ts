@@ -3,16 +3,21 @@ import { EXERCISES } from '@/engine/exercises.ts';
 import type { Exercise, Muscle, Pattern } from '@/engine/types.ts';
 
 export const DIFFICULTY = ['', 'Beginner', 'Intermediate', 'Advanced'] as const;
-export const EQUIPMENT_LABEL: Record<string, string> = { barbell: 'Barbell', rack: 'Rack', dumbbell: 'Dumbbells', bench: 'Bench', machine: 'Machine', cable: 'Cable' };
+export const EQUIPMENT_LABEL: Record<string, string> = {
+  barbell: 'Barbell', rack: 'Rack', dumbbell: 'Dumbbells', bench: 'Bench', machine: 'Machine', cable: 'Cable', smith: 'Smith machine',
+  ez_bar: 'EZ bar', kettlebell: 'Kettlebell', pullup_bar: 'Pull-up bar', dip_station: 'Dip station', band: 'Band', trap_bar: 'Trap bar',
+  landmine: 'Landmine', bodyweight: 'Bodyweight',
+};
 
 export const PATTERN_LABEL: Record<Pattern, string> = {
   horizontal_push: 'Horizontal press', vertical_push: 'Vertical press', horizontal_pull: 'Horizontal row', vertical_pull: 'Vertical pull',
   squat: 'Squat', lunge: 'Lunge', hinge: 'Hip hinge', hip_thrust: 'Hip thrust', knee_extension: 'Knee extension', knee_flexion: 'Knee flexion',
   fly: 'Fly', lateral_raise: 'Lateral raise', elbow_flexion: 'Elbow flexion', elbow_extension: 'Elbow extension', calf_raise: 'Calf raise',
-  rear_delt: 'Rear delt fly', pullover: 'Pullover', hip_abduction: 'Hip abduction',
+  rear_delt: 'Rear delt fly', pullover: 'Pullover', hip_abduction: 'Hip abduction', hip_extension: 'Hip extension', shrug: 'Shrug',
+  trunk_flexion: 'Crunch', hip_flexion: 'Leg raise', anti_extension: 'Anti-extension', rotation: 'Rotation',
 };
 
-export const CATEGORIES: { id: Muscle | 'abs'; label: string; icon: string }[] = [
+export const CATEGORIES: { id: Muscle; label: string; icon: string }[] = [
   { id: 'chest', label: 'Chest', icon: 'shield' }, { id: 'back', label: 'Back', icon: 'git-network' }, { id: 'shoulders', label: 'Shoulders', icon: 'triangle' },
   { id: 'biceps', label: 'Biceps', icon: 'fitness' }, { id: 'triceps', label: 'Triceps', icon: 'fitness' }, { id: 'quads', label: 'Quads', icon: 'walk' },
   { id: 'hamstrings', label: 'Hamstrings', icon: 'walk' }, { id: 'glutes', label: 'Glutes', icon: 'ellipse' }, { id: 'calves', label: 'Calves', icon: 'footsteps' },
@@ -25,13 +30,15 @@ const PRIMARY: Partial<Record<string, string>> = {
   reverse_pec_deck: 'Rear delts', face_pull: 'Rear delts', db_rear_delt_fly: 'Rear delts', straight_arm_pulldown: 'Lats', db_pullover: 'Lats', hip_abduction: 'Glute medius', incline_bb_press: 'Upper chest',
 };
 const MUSCLE_TEXT: Record<Muscle, string> = {
-  chest: 'Chest', back: 'Lats & upper back', shoulders: 'Shoulders', quads: 'Quads', hamstrings: 'Hamstrings', glutes: 'Glutes', biceps: 'Biceps', triceps: 'Triceps', calves: 'Calves',
+  chest: 'Chest', back: 'Lats & upper back', shoulders: 'Shoulders', quads: 'Quads', hamstrings: 'Hamstrings', glutes: 'Glutes', biceps: 'Biceps', triceps: 'Triceps', calves: 'Calves', abs: 'Abs',
 };
 const SECONDARY: Record<Pattern, string> = {
   horizontal_push: 'Front delts, triceps', vertical_push: 'Triceps, upper chest', horizontal_pull: 'Biceps, rear delts', vertical_pull: 'Biceps, rear delts',
   squat: 'Glutes, adductors', lunge: 'Glutes, adductors', hinge: 'Glutes, spinal erectors', hip_thrust: 'Hamstrings', knee_extension: 'None (isolation)',
   knee_flexion: 'Calves', fly: 'Front delts', lateral_raise: 'Upper traps', elbow_flexion: 'Forearms', elbow_extension: 'None (isolation)', calf_raise: 'None (isolation)',
   rear_delt: 'Mid traps, rhomboids', pullover: 'Long head of triceps, chest', hip_abduction: 'None (isolation)',
+  hip_extension: 'Hamstrings, spinal erectors', shrug: 'Forearms (grip)', trunk_flexion: 'Obliques', hip_flexion: 'Hip flexors, obliques',
+  anti_extension: 'Obliques, lats', rotation: 'Abs (rectus abdominis)',
 };
 const MISTAKES: Record<Pattern, string[]> = {
   horizontal_push: ['Flaring the elbows straight out', 'Bouncing the weight off the chest', 'Letting the shoulders roll forward'],
@@ -52,6 +59,12 @@ const MISTAKES: Record<Pattern, string[]> = {
   rear_delt: ['Shrugging the shoulders up', 'Turning it into a row with bent elbows', 'Going too heavy to control'],
   pullover: ['Bending the elbows into a press', 'Arching the lower back', 'Cutting the stretch short'],
   hip_abduction: ['Using momentum', 'Rushing the return', 'Partial range'],
+  hip_extension: ['Over-arching the lower back at the top', 'Swinging the leg', 'Rushing the lowering'],
+  shrug: ['Rolling the shoulders', 'Bouncing the weight', 'Cutting the range short'],
+  trunk_flexion: ['Pulling on the neck', 'Moving from the hips instead of the spine', 'Rushing the reps'],
+  hip_flexion: ['Swinging for momentum', 'Arching the lower back', 'Dropping the legs fast'],
+  anti_extension: ['Letting the hips sag', 'Going further than you can control', 'Holding your breath the whole set'],
+  rotation: ['Turning with the arms only', 'Using momentum', 'Twisting the knees'],
 };
 
 export type ExerciseInfo = {
@@ -83,4 +96,4 @@ export function infoFor(ex: Exercise): ExerciseInfo {
   };
 }
 
-export const exercisesFor = (cat: Muscle | 'abs') => (cat === 'abs' ? [] : EXERCISES.filter((e) => e.muscle === cat));
+export const exercisesFor = (cat: Muscle) => EXERCISES.filter((e) => e.muscle === cat);

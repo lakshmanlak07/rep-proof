@@ -69,7 +69,7 @@ export function insightFromDecision(d: Decision): {
 export const pct = (from: number, to: number) => (from > 0 ? Math.round(((to - from) / from) * 1000) / 10 : 0);
 
 export const MUSCLE_LABEL: Record<Muscle, string> = {
-  chest: 'Chest', back: 'Back', shoulders: 'Shoulders', quads: 'Quads', hamstrings: 'Hamstrings', glutes: 'Glutes', biceps: 'Biceps', triceps: 'Triceps', calves: 'Calves',
+  chest: 'Chest', back: 'Back', shoulders: 'Shoulders', quads: 'Quads', hamstrings: 'Hamstrings', glutes: 'Glutes', biceps: 'Biceps', triceps: 'Triceps', calves: 'Calves', abs: 'Abs',
 };
 
 export const greeting = (d = new Date()) => (d.getHours() < 12 ? 'Good morning' : d.getHours() < 18 ? 'Good afternoon' : 'Good evening');
