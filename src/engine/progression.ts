@@ -39,9 +39,11 @@ export function suggest(
 
   const weight = Math.max(...last.map((s) => s.weight));
   const minReps = Math.min(...last.map((s) => s.reps));
-  const rirs = last.map((s) => s.rir ?? rirTarget);
-  const minRir = Math.min(...rirs);
-  const avgRir = rirs.reduce((a, b) => a + b, 0) / rirs.length;
+  // Each set is judged against its own target: with "last set to failure" the last set aims for 0.
+  const targetAt = (i: number) => (i === last.length - 1 ? plan.lastSetRir ?? rirTarget : rirTarget);
+  const spare = last.map((s, i) => (s.rir ?? targetAt(i)) - targetAt(i)); // reps left beyond the target
+  const avgSpare = spare.reduce((a, b) => a + b, 0) / spare.length;
+  const overshot = last.findIndex((s, i) => s.rir !== null && s.rir < targetAt(i) - 1);
   const below = (session: LoggedSet[] | undefined) => !!session?.length && session.some((s) => s.reps < repMin);
   const usesRir = experience !== 'beginner';
 
@@ -61,11 +63,11 @@ export function suggest(
   }
 
   if (minReps >= repMax) {
-    if (usesRir && avgRir >= rirTarget + 2) {
+    if (usesRir && avgSpare >= 2) {
       const next = weight + 2 * inc;
       return {
         kind: 'up', weight: next, reps: repMin, sets,
-        explanation: { text: `Up ${2 * inc} ${unit}: you hit all ${repMax} reps with about ${Math.round(avgRir)} in reserve, so it was too easy for one small step.`, label: 'direct', refIds: ['rir_autoreg'] },
+        explanation: { text: `Up ${2 * inc} ${unit}: you hit all ${repMax} reps with about ${Math.round(avgSpare)} more in reserve than planned, so it was too easy for one small step.`, label: 'direct', refIds: ['rir_autoreg'] },
       };
     }
     const next = weight + inc;
@@ -75,10 +77,10 @@ export function suggest(
     };
   }
 
-  if (usesRir && minRir < rirTarget - 1) {
+  if (usesRir && overshot >= 0) {
     return {
       kind: 'hold', weight, reps: minReps, sets,
-      explanation: { text: `Same weight and reps: last time you went to ${minRir} in reserve, closer to failure than the target of ${rirTarget}. Match it with more left in the tank first.`, label: 'direct', refIds: ['rir_autoreg'] },
+      explanation: { text: `Same weight and reps: set ${overshot + 1} went to ${last[overshot].rir} in reserve, closer to failure than its target of ${targetAt(overshot)}. Match it with more left in the tank first.`, label: 'direct', refIds: ['rir_autoreg'] },
     };
   }
 

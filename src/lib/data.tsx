@@ -26,10 +26,10 @@ export type ProfileRow = {
 };
 export type ProgramRow = { id: string; split: SplitId; plan: Program; next_day: number };
 
-/** Engine profile from the DB row; weak/strong points live with the plan (Program.emphasis). */
-export const toProfile = (r: ProfileRow, emphasis?: Program['emphasis']): Profile => ({
+/** Engine profile from the DB row; weak/strong points and effort style live with the plan. */
+export const toProfile = (r: ProfileRow, plan?: Pick<Program, 'emphasis' | 'effort'>): Profile => ({
   experience: r.experience, goal: r.goal, setup: r.setup, days: r.days, sessionMinutes: r.session_minutes, unit: r.unit, avoid: r.avoid,
-  weak: emphasis?.weak ?? [], strong: emphasis?.strong ?? [],
+  weak: plan?.emphasis?.weak ?? [], strong: plan?.emphasis?.strong ?? [], effort: plan?.effort ?? 'last_failure',
 });
 
 type Ctx = {
@@ -70,7 +70,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // Plans saved by an older engine are rebuilt under the current rules (split and place in the week kept).
       if (p.data && program && (program.plan.version ?? 1) < ENGINE_VERSION) {
         try {
-          await saveProgram(toProfile(p.data, program.plan.emphasis), program.split, program.next_day);
+          await saveProgram(toProfile(p.data, program.plan), program.split, program.next_day);
           const fresh = await supabase.from('programs').select('id, split, plan, next_day').eq('active', true).maybeSingle();
           if (!fresh.error && fresh.data) program = fresh.data;
         } catch {
@@ -129,12 +129,14 @@ export async function saveProgram(profile: Profile, split?: SplitId, nextDay = 0
 }
 
 /** Last `n` finished sessions of an exercise, newest first. */
-export async function history(exerciseId: string, n = 2): Promise<LoggedSet[][]> {
+/** Last `n` sessions of an exercise, newest first; sets in the order they were done. */
+export async function history(exerciseId: string, n = 6): Promise<LoggedSet[][]> {
   const rows = must(await supabase
     .from('logged_sets')
-    .select('workout_id, weight, reps, rir, created_at')
+    .select('workout_id, weight, reps, rir, created_at, set_index')
     .eq('exercise_id', exerciseId)
     .order('created_at', { ascending: false })
+    .order('set_index', { ascending: true })
     .limit(n * 10));
   const sessions: LoggedSet[][] = [];
   const ids: string[] = [];

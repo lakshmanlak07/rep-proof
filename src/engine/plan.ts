@@ -1,6 +1,6 @@
-import { available } from './exercises.ts';
+import { available, EXERCISE_BY_ID } from './exercises.ts';
 import type {
-  Exercise, Experience, Explanation, Goal, Muscle, PlannedDay, PlannedExercise, Profile, Program, SplitId,
+  Effort, Exercise, Experience, Explanation, Goal, Muscle, PlannedDay, PlannedExercise, Profile, Program, SplitId,
 } from './types.ts';
 
 export const MUSCLES: Muscle[] = ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'glutes', 'biceps', 'triceps', 'calves'];
@@ -49,8 +49,9 @@ export function recommendSplit(days: number): SplitId {
 }
 
 // Bump when plan rules change; saved plans from older versions are rebuilt automatically.
-// 2 = founder model: 1-3 sets to failure, warm-up every exercise, weak/strong points.
-export const ENGINE_VERSION = 2;
+// 2 = founder model: 1-3 sets, warm-up every exercise, weak/strong points.
+// 3 = effort styles (default: last set to failure, others 1-3 in reserve), isolation reps 10-15.
+export const ENGINE_VERSION = 3;
 
 const BIG: Muscle[] = ['back', 'chest', 'quads', 'hamstrings', 'glutes'];
 
@@ -69,15 +70,28 @@ const MINUTES_PER_SET = 3;
 export const exerciseMinutes = (sets: number) => WARMUP_MINUTES + sets * MINUTES_PER_SET;
 
 export function repRange(goal: Goal, compound: boolean): [number, number] {
-  if (!compound) return [8, 12];
+  if (!compound) return [10, 15]; // broad ranges work when sets are hard; isolation sits higher
   if (goal === 'strength') return [5, 8];
   if (goal === 'both') return [6, 8];
   return [6, 10];
 }
 
-// Working sets go to failure; beginners stop one rep short while they learn the lifts (safety call).
-export function rirTarget(experience: Experience): number {
-  return experience === 'beginner' ? 1 : 0;
+export const EFFORT_NAMES: Record<Effort, { label: string; hint: string }> = {
+  last_failure: { label: 'Last set to failure', hint: 'Earlier sets stop about 2 reps short; the last set goes all the way' },
+  rir: { label: 'All sets 1-3 reps short', hint: 'Never to failure; least fatigue' },
+  failure: { label: 'Every set to failure', hint: 'Most effort per set; most fatigue' },
+};
+
+/** Reps-in-reserve targets for an effort style. Beginners on the default stop 1 short on the last set too (safety call). */
+export function effortTargets(effort: Effort, experience: Experience): { rir: number; last: number } {
+  if (effort === 'failure') return { rir: 0, last: 0 };
+  if (effort === 'rir') return { rir: 2, last: 1 };
+  return { rir: 2, last: experience === 'beginner' ? 1 : 0 };
+}
+
+/** Default reps-in-reserve for the non-final sets (used for exercises added during a workout). */
+export function rirTarget(experience: Experience, effort: Effort = 'last_failure'): number {
+  return effortTargets(effort, experience).rir;
 }
 
 export function buildProgram(profile: Profile, split: SplitId = recommendSplit(profile.days)): Program {
@@ -85,6 +99,8 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   const dayTemplates = Array.from({ length: profile.days }, (_, i) => cycle[i % cycle.length]);
   const pool = available(profile.setup, profile.avoid);
   const emphasis = { weak: profile.weak ?? [], strong: (profile.strong ?? []).filter((m) => !profile.weak?.includes(m)) };
+  const effort: Effort = profile.effort ?? 'last_failure';
+  const targets = effortTargets(effort, profile.experience);
   const explanations: Explanation[] = [];
   let trimmed = false;
 
@@ -142,7 +158,7 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
     picked.sort((a, b) => Number(b.ex.compound) - Number(a.ex.compound));
     const exercises: PlannedExercise[] = picked.map(({ ex, sets }) => {
       const [repMin, repMax] = repRange(profile.goal, ex.compound);
-      return { exerciseId: ex.id, sets, repMin, repMax, rirTarget: rirTarget(profile.experience) };
+      return { exerciseId: ex.id, sets, repMin, repMax, rirTarget: targets.rir, lastSetRir: targets.last };
     });
     return { name: t.name, exercises };
   });
@@ -154,11 +170,7 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
     if (same > 1) d.name = `${names[i]} ${'ABCDEF'[names.slice(0, i).filter((n) => n === names[i]).length]}`;
   });
 
-  const weeklySets: Partial<Record<Muscle, number>> = {};
-  for (const d of days) for (const e of d.exercises) {
-    const m = pool.find((x) => x.id === e.exerciseId)!.muscle;
-    weeklySets[m] = (weeklySets[m] ?? 0) + e.sets;
-  }
+  const weeklySets = weeklySetsOf(days);
 
   const list = (ms: Muscle[]) => ms.map((m) => MUSCLE_NAMES[m].toLowerCase()).join(', ');
   explanations.push({
@@ -183,21 +195,30 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   }
   explanations.push({
     text: profile.goal === 'muscle'
-      ? 'Reps mostly 6 to 12. Muscle grows similarly across light and heavy loads, so the range is about practicality: heavy enough to track, light enough to recover.'
+      ? 'Reps from 6 to 15: 6-10 on big lifts, 10-15 on isolation work. Muscle grew similarly across light and heavy loads when sets were hard, so no single rep range is magic; these ranges are practical, not special.'
       : 'Heavier sets (5 to 8 reps) on the big lifts. Muscle grows across a wide range of loads, but heavier loads build more max strength.',
     label: 'principle',
     refIds: ['load_meta'],
   });
-  explanations.push({
-    text: rirTarget(profile.experience) === 0
-      ? 'Every working set goes to failure: the last rep you can complete with good form. Failure was not required for growth on average, but trained lifters saw a small extra size benefit, and with only 1 to 3 sets each one should count.'
-      : 'Working sets stop 1 rep short of failure while you learn the lifts; going all the way to failure adds risk before your technique is solid. Failure was not required for growth on average.',
-    label: 'principle',
-    refIds: ['failure'],
-  });
+  const effortText: Record<Effort, string> = {
+    last_failure: `${EFFORT_NAMES.last_failure.label}${targets.last ? ' (1 rep short while you learn the lifts)' : ''}: earlier sets stop about ${targets.rir} reps short, the last set goes as far as it can. Getting close to failure matters; reaching it every set was not needed for growth on average, so this keeps effort high and fatigue in check.`,
+    rir: `${EFFORT_NAMES.rir.label}: sets stop 1 to 3 reps before failure. Training to failure was not required for strength or size on average, and stopping short costs less fatigue.`,
+    failure: `${EFFORT_NAMES.failure.label}: your choice. Failure was not required for growth on average; trained lifters saw a small extra size benefit, at a higher fatigue cost. If recovery suffers, try "last set to failure".`,
+  };
+  explanations.push({ text: effortText[effort], label: 'principle', refIds: ['failure'] });
   explanations.push(REST_WHY);
 
-  return { split, weeklySets, days, explanations, emphasis, version: ENGINE_VERSION };
+  return { split, weeklySets, days, explanations, emphasis, effort, version: ENGINE_VERSION };
+}
+
+/** Planned hard sets per muscle per week (pins count). Recomputed whenever the plan changes. */
+export function weeklySetsOf(days: PlannedDay[]): Partial<Record<Muscle, number>> {
+  const out: Partial<Record<Muscle, number>> = {};
+  for (const d of days) for (const e of d.exercises) {
+    const m = EXERCISE_BY_ID[e.exerciseId].muscle;
+    out[m] = (out[m] ?? 0) + (e.pinnedSets ?? e.sets);
+  }
+  return out;
 }
 
 // Beginners get easier lifts first; otherwise library order (compounds lead).

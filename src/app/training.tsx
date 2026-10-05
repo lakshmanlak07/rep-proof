@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 
-import type { Experience, Goal, Muscle, Pattern, Setup } from '@/engine/types.ts';
+import type { Effort, Experience, Goal, Muscle, Pattern, Setup } from '@/engine/types.ts';
 import { attempt } from '@/lib/alert';
 import { saveProgram, toProfile, track, updateProfile, useData, type ProfileRow } from '@/lib/data';
 import { leave } from '@/lib/nav';
-import { AVOID_OPTIONS, EXPERIENCE_OPTIONS, GOAL_OPTIONS, MINUTE_OPTIONS, MUSCLE_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
+import { AVOID_OPTIONS, EFFORT_OPTIONS, EXPERIENCE_OPTIONS, GOAL_OPTIONS, MINUTE_OPTIONS, MUSCLE_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
 import { Button, Choice, Loading, Screen, T } from '@/ui';
 
 // Edit what onboarding asked (days and split live on the Plan tab). Saving rebuilds the plan.
@@ -18,6 +18,7 @@ export default function Training() {
   const [avoid, setAvoid] = useState<Pattern[]>(profile?.avoid ?? []);
   const [weak, setWeak] = useState<Muscle[]>(program?.plan.emphasis?.weak ?? []);
   const [strong, setStrong] = useState<Muscle[]>(program?.plan.emphasis?.strong ?? []);
+  const [effort, setEffort] = useState<Effort>(program?.plan.effort ?? 'last_failure');
   const [busy, setBusy] = useState(false);
 
   if (!profile || !program || !experience || !setup || !goal || !minutes) return <Loading />;
@@ -32,11 +33,11 @@ export default function Training() {
     const saved = await attempt(async () => {
       await updateProfile(profile.id, patch);
       // Logged weights carry over: suggestions read history by exercise, not by program.
-      await saveProgram(toProfile(next, { weak, strong }), split, nextDay);
+      await saveProgram(toProfile(next, { emphasis: { weak, strong }, effort }), split, nextDay);
     }, 'update your training profile');
     setBusy(false);
     if (!saved) return;
-    track('training_profile_changed', { experience, setup, goal, minutes, avoid: avoid.length, weak: weak.length, strong: strong.length });
+    track('training_profile_changed', { experience, setup, goal, minutes, effort, avoid: avoid.length, weak: weak.length, strong: strong.length });
     await refresh();
     leave();
   }
@@ -52,6 +53,8 @@ export default function Training() {
       <Choice value={goal} onChange={setGoal} options={GOAL_OPTIONS} />
       <T bold>Session length</T>
       <Choice value={minutes} onChange={setMinutes} options={MINUTE_OPTIONS} />
+      <T bold>How hard sets go</T>
+      <Choice value={effort} onChange={setEffort} options={EFFORT_OPTIONS} />
       <T bold>Weak points (3 sets per exercise)</T>
       <Choice value={weak} onChange={(m) => { setWeak(weak.includes(m) ? weak.filter((x) => x !== m) : [...weak, m]); setStrong(strong.filter((x) => x !== m)); }} options={MUSCLE_OPTIONS} />
       <T bold>Strong points (1 set per exercise)</T>

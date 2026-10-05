@@ -3,6 +3,8 @@
 export type Experience = 'beginner' | 'intermediate' | 'advanced';
 export type Goal = 'muscle' | 'strength' | 'both';
 export type Unit = 'kg' | 'lb';
+// How hard working sets go. last_failure: earlier sets 1-3 reps in reserve, last set to failure (default).
+export type Effort = 'last_failure' | 'rir' | 'failure';
 export type Setup = 'commercial' | 'home';
 
 export type Muscle =
@@ -43,6 +45,7 @@ export type Profile = {
   avoid: Pattern[];
   weak?: Muscle[]; // weak points: 3 sets per exercise
   strong?: Muscle[]; // strong points: 1 set per exercise
+  effort?: Effort;
 };
 
 export type PlannedExercise = {
@@ -50,7 +53,8 @@ export type PlannedExercise = {
   sets: number;
   repMin: number;
   repMax: number;
-  rirTarget: number;
+  rirTarget: number; // reps in reserve for every set except the last
+  lastSetRir?: number; // reps in reserve for the last set (defaults to rirTarget)
   pinnedSets?: number; // user override; engine stops adjusting it
   pinnedReps?: number;
 };
@@ -66,6 +70,7 @@ export type Program = {
   explanations: Explanation[];
   emphasis?: { weak: Muscle[]; strong: Muscle[] }; // kept with the plan so rebuilds remember it
   version?: number; // ENGINE_VERSION that built it; older plans are rebuilt on load
+  effort?: Effort;
 };
 
 export type LoggedSet = { weight: number; reps: number; rir: number | null };

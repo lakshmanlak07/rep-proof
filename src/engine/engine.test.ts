@@ -34,8 +34,10 @@ test('every profile combination builds a valid program', () => {
               const ex = EXERCISE_BY_ID[e.exerciseId];
               assert.ok(ex.equipment.every((q) => SETUP_EQUIPMENT[setup].includes(q)), `${ex.id} not available at ${setup}`);
               assert.ok(e.sets >= 1 && e.sets <= 3, `${ex.id} has ${e.sets} sets (founder rule: 1-3)`);
-              assert.equal(e.rirTarget, experience === 'beginner' ? 1 : 0);
-              assert.ok(e.repMin >= 5 && e.repMax <= 12);
+              // default effort: earlier sets ~2 in reserve, last set to failure (beginners 1 short)
+              assert.equal(e.rirTarget, 2);
+              assert.equal(e.lastSetRir, experience === 'beginner' ? 1 : 0);
+              assert.ok(e.repMin >= 5 && e.repMax <= 15);
             }
             const minutes = d.exercises.reduce((n, e) => n + exerciseMinutes(e.sets), 0);
             const floor = d.exercises.length * exerciseMinutes(1); // every exercise at 1 set is the minimum
@@ -276,5 +278,67 @@ test('home stats: week dots, streak, new bests', async () => {
 });
 
 test('plans record the engine version that built them', () => {
-  assert.equal(buildProgram(base).version, 2);
+  assert.equal(buildProgram(base).version, 3);
+});
+
+test('effort styles set per-set reps-in-reserve targets', async () => {
+  const { effortTargets } = await import('./plan.ts');
+  assert.deepEqual(effortTargets('last_failure', 'intermediate'), { rir: 2, last: 0 });
+  assert.deepEqual(effortTargets('last_failure', 'beginner'), { rir: 2, last: 1 });
+  assert.deepEqual(effortTargets('rir', 'advanced'), { rir: 2, last: 1 });
+  assert.deepEqual(effortTargets('failure', 'beginner'), { rir: 0, last: 0 }); // explicit choice wins
+  const p = buildProgram({ ...base, effort: 'rir' });
+  assert.equal(p.effort, 'rir');
+  assert.ok(p.days.flatMap((d) => d.exercises).every((e) => e.rirTarget === 2 && e.lastSetRir === 1));
+});
+
+test('progression judges each set against its own target', () => {
+  const plan = { ...bench, rirTarget: 2, lastSetRir: 0 };
+  // set 1 at 2 in reserve, last set at 0: exactly on plan -> normal step
+  const onPlan = suggest(plan, [[{ weight: 60, reps: 10, rir: 2 }, { weight: 60, reps: 10, rir: 0 }]], 'intermediate', 'kg');
+  assert.deepEqual([onPlan.kind, onPlan.weight], ['up', 62.5]);
+  // both sets 2-3 more in reserve than planned -> too easy, double step
+  const easy = suggest(plan, [[{ weight: 60, reps: 10, rir: 4 }, { weight: 60, reps: 10, rir: 3 }]], 'intermediate', 'kg');
+  assert.deepEqual([easy.kind, easy.weight], ['up', 65]);
+  // first set ground to failure when it should have stopped 2 short -> hold
+  const ground = suggest(plan, [[{ weight: 60, reps: 8, rir: 0 }, { weight: 60, reps: 8, rir: 0 }]], 'intermediate', 'kg');
+  assert.equal(ground.kind, 'hold');
+  assert.ok(ground.explanation.text.includes('set 1'));
+});
+
+test('decision engine answers the next-step questions', async () => {
+  const { decide, applySetChange, programAdvice } = await import('./decisions.ts');
+  const plan = { exerciseId: 'bb_bench', sets: 2, repMin: 6, repMax: 10, rirTarget: 2, lastSetRir: 0 };
+  const sess = (w: number, r: number, rir = 0) => [{ weight: w, reps: r, rir: 2 + rir }, { weight: w, reps: r, rir }];
+  const good = { sleep: 4, soreness: 4, energy: 4 };
+  const bad = { sleep: 1, soreness: 2, energy: 2 };
+  const swapTo = { id: 'db_bench', name: 'Dumbbell bench press' };
+
+  assert.equal(decide({ plan, sessions: [sess(60, 8), sess(60, 7)], checkins: [good], swapTo }).kind, 'too_new');
+  // new best this session -> progressing
+  assert.equal(decide({ plan, sessions: [sess(62.5, 8), sess(60, 9), sess(60, 8)], checkins: [good, good], swapTo }).kind, 'progressing');
+  // two sessions without beating the earlier best, recovery fine -> add a set
+  const add = decide({ plan, sessions: [sess(60, 8), sess(60, 8), sess(60, 9)], checkins: [good, good], swapTo });
+  assert.deepEqual([add.kind, add.setsDelta], ['add_set', 1]);
+  // same stall with rough check-ins -> recover, no extra set
+  assert.equal(decide({ plan, sessions: [sess(60, 8), sess(60, 8), sess(60, 9)], checkins: [bad, good], swapTo }).kind, 'hold_recover');
+  // falling two sessions in a row + rough check-ins -> one set fewer
+  const less = decide({ plan, sessions: [sess(60, 6), sess(60, 7), sess(60, 8)], checkins: [bad, bad], swapTo });
+  assert.deepEqual([less.kind, less.setsDelta], ['remove_set', -1]);
+  // at 3 sets and stuck 4 sessions -> suggest a swap, never a 4th set
+  const at3 = { ...plan, sets: 3 };
+  const swap = decide({ plan: at3, sessions: [sess(60, 8), sess(60, 8), sess(60, 8), sess(60, 8), sess(60, 9)], checkins: [good, good], swapTo });
+  assert.deepEqual([swap.kind, swap.swapTo, swap.setsDelta], ['swap', 'db_bench', 0]);
+  assert.equal(decide({ plan: at3, sessions: [sess(60, 8), sess(60, 8), sess(60, 9)], checkins: [good], swapTo }).kind, 'hold_stalled');
+  // pinned sets never change
+  assert.equal(decide({ plan: { ...plan, pinnedSets: 2 }, sessions: [sess(60, 8), sess(60, 8), sess(60, 9)], checkins: [good], swapTo }).setsDelta, 0);
+  // consistently far from target effort -> train closer to failure
+  const easy = decide({ plan, sessions: [sess(62.5, 8, 3), sess(60, 8, 3), sess(57.5, 8, 3)], checkins: [good], swapTo });
+  assert.equal(easy.kind, 'push_closer');
+
+  assert.equal(applySetChange({ ...plan, sets: 3 }, 1).sets, 3); // cap 3
+  assert.equal(applySetChange({ ...plan, sets: 1 }, -1).sets, 1); // floor 1
+  assert.equal(applySetChange({ ...plan, pinnedSets: 2 }, 1).sets, 2);
+  assert.ok(programAdvice([add, add, swap, less]));
+  assert.equal(programAdvice([add]), null);
 });

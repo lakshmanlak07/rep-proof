@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 
 import { available, EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
-import { MUSCLE_NAMES, MUSCLES, repRange, REST_WHY, rirTarget } from '@/engine/plan.ts';
+import { applySetChange, decide, programAdvice, type Decision } from '@/engine/decisions.ts';
+import { effortTargets, MUSCLE_NAMES, MUSCLES, repRange, REST_WHY, weeklySetsOf } from '@/engine/plan.ts';
 import { adjustForDay, applyPins, isBadDay, suggest, warmup, WARMUP_WHY, type Suggestion } from '@/engine/progression.ts';
 import { cooldown, isMissed } from '@/engine/session.ts';
-import type { CheckIn, LoggedSet, PlannedExercise } from '@/engine/types.ts';
+import type { CheckIn, Explanation, LoggedSet, PlannedExercise } from '@/engine/types.ts';
+import { saveCoachNotes } from '@/lib/coach';
 import {
-  bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updateProfile, useData, type DraftSet,
+  bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updatePlan, updateProfile, useData, type DraftSet,
 } from '@/lib/data';
 import { Button, C, Card, Choice, Loading, s, Screen, T } from '@/ui';
 import { alert, attempt } from '@/lib/alert';
@@ -19,6 +21,7 @@ import { leave } from '@/lib/nav';
 type Row = { weight: string; reps: string; rir: string; done: boolean };
 type Item = {
   planned: PlannedExercise;
+  added?: boolean; // logged during the workout, not part of the plan
   exerciseId: string;
   history: LoggedSet[][];
   prevBest: number | null;
@@ -27,9 +30,24 @@ type Item = {
   sets: Row[];
 };
 type Draft = { userId: string; dayIndex: number; startedAt: string; checkin: CheckIn | null; items: Item[] };
-type Summary = { sets: number; prs: string[]; next: { name: string; text: string }[]; cooldown: string[] };
+type Summary = {
+  sets: number;
+  prs: string[];
+  next: { exerciseId: string; name: string; text: string; decision?: Decision }[];
+  cooldown: string[];
+  deload: boolean;
+  advice: Explanation | null;
+};
 
 const KEY = 'draft_workout';
+
+const short = (n: number) => (n === 0 ? 'to failure' : `${n} rep${n > 1 ? 's' : ''} short of failure`);
+/** "last set to failure, others 2 reps short of failure", or one phrase when all sets share a target. */
+function effortLabel(p: PlannedExercise) {
+  const last = p.lastSetRir ?? p.rirTarget;
+  if (last === p.rirTarget) return `all sets ${short(last)}`;
+  return `last set ${short(last)}, others ${short(p.rirTarget)}`;
+}
 const MISSED_KEY = 'missed_choice'; // last answer to the missed-session prompt
 const loadDraft = (): Draft | null => { try { return JSON.parse(localStorage.getItem(KEY) ?? 'null'); } catch { return null; } };
 const PAIN_MSG = "Pain isn't something RepProof can assess. Stop the exercise and consider seeing a qualified professional.";
@@ -51,6 +69,7 @@ export default function Workout() {
   const [restEnd, setRestEnd] = useState<number | null>(null);
   const [swapFor, setSwapFor] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
+  const [swapped, setSwapped] = useState<string[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [missed, setMissed] = useState(false);
   const [skip, setSkip] = useState(() => localStorage.getItem(MISSED_KEY) === 'skip');
@@ -80,8 +99,9 @@ export default function Workout() {
     return {
       planned, exerciseId, history: h, prevBest, suggestion: sug,
       changed: sug.weight !== lastWeight || sug.sets !== planned.sets,
-      sets: Array.from({ length: sug.sets }, () => ({
-        weight: sug.weight === null ? '' : String(sug.weight), reps: String(sug.reps), rir: String(planned.rirTarget), done: false,
+      sets: Array.from({ length: sug.sets }, (_, k) => ({
+        weight: sug.weight === null ? '' : String(sug.weight), reps: String(sug.reps),
+        rir: String(k === sug.sets - 1 ? planned.lastSetRir ?? planned.rirTarget : planned.rirTarget), done: false,
       })),
     };
   }
@@ -127,15 +147,28 @@ export default function Workout() {
     return { ...d, items };
   });
 
+  // A suggested swap is the user's call: replace the exercise everywhere in the plan.
+  async function swapPlanned(fromId: string, toId: string) {
+    if (!program) return;
+    const days = program.plan.days.map((day) => ({
+      ...day, exercises: day.exercises.map((e) => (e.exerciseId === fromId ? { ...e, exerciseId: toId } : e)),
+    }));
+    const ok = await attempt(() => updatePlan(program.id, { ...program.plan, days, weeklySets: weeklySetsOf(days) }), 'swap it in your plan');
+    if (!ok) return;
+    track('swap_in_plan', { from: fromId, to: toId });
+    setSwapped((x) => [...x, fromId]);
+  }
+
   // Any lift, not just the plan's: 2 working sets, tracked and progressed like planned ones.
   async function addExercise(exerciseId: string) {
     setAdding(false);
     if (!draft || !profile) return;
     const [repMin, repMax] = repRange(profile.goal, EXERCISE_BY_ID[exerciseId].compound);
-    const planned = { exerciseId, sets: 2, repMin, repMax, rirTarget: rirTarget(profile.experience) };
+    const effort = effortTargets(program?.plan.effort ?? 'last_failure', profile.experience);
+    const planned = { exerciseId, sets: 2, repMin, repMax, rirTarget: effort.rir, lastSetRir: effort.last };
     const badDay = !!draft.checkin && isBadDay(draft.checkin);
     try {
-      const item = await buildItem(planned, exerciseId, badDay);
+      const item = { ...(await buildItem(planned, exerciseId, badDay)), added: true };
       setDraft((d) => d && { ...d, items: [...d.items, item] });
       track('exercise_added', { exerciseId });
     } catch {
@@ -164,7 +197,7 @@ export default function Workout() {
           const avoid = [...new Set([...profile!.avoid, ex.pattern])];
           const saved = await attempt(async () => {
             await updateProfile(profile!.id, { avoid });
-            await saveProgram(toProfile({ ...profile!, avoid }, program!.plan.emphasis), program!.split, program!.next_day);
+            await saveProgram(toProfile({ ...profile!, avoid }, program!.plan), program!.split, program!.next_day);
           }, 'update your plan');
           if (!saved) return;
           setDraft((d) => d && { ...d, items: d.items.filter((_, k) => k !== i) });
@@ -198,7 +231,7 @@ export default function Workout() {
       if (it.prevBest !== null && top > it.prevBest) prs.push(`${name}: ${top} ${unit}`);
       const n = applyPins(suggest(it.planned, [done, ...it.history], profile!.experience, unit), it.planned);
       if (n.kind === 'drop') perfDrops++;
-      next.push({ name, text: n.explanation.text });
+      next.push({ exerciseId: it.exerciseId, name, text: n.explanation.text });
     }
     setBusy(true);
     try {
@@ -213,9 +246,38 @@ export default function Workout() {
     }
     localStorage.removeItem(KEY);
     setDraft(null); // saved: drop it from state too, or a later effect run would write it back
+
+    // Interpret -> Adjust: decide per planned lift, apply set changes to the plan (not during a deload).
+    let advice: Explanation | null = null;
+    try {
+      const checkins = (await recentWorkouts(3)).map((r) => r.checkin);
+      const decisions: Decision[] = [];
+      for (const it of d.items) {
+        const done = sets.filter((x) => x.exerciseId === it.exerciseId);
+        if (!done.length || it.added) continue;
+        const sub = substitutes(it.exerciseId, profile!.setup, profile!.avoid)[0];
+        const decision = decide({ plan: it.planned, sessions: [done, ...it.history], checkins, swapTo: sub ? { id: sub.id, name: sub.name } : null });
+        decisions.push(decision);
+        const entry = next.find((x) => x.exerciseId === it.exerciseId);
+        if (entry) entry.decision = decision;
+      }
+      if (!deload) {
+        advice = programAdvice(decisions);
+        const deltas = new Map(decisions.filter((x) => x.setsDelta).map((x) => [x.exerciseId, x.setsDelta]));
+        if (deltas.size) {
+          const days = program!.plan.days.map((day) => ({
+            ...day, exercises: day.exercises.map((e) => applySetChange(e, deltas.get(e.exerciseId) ?? 0)),
+          }));
+          await updatePlan(program!.id, { ...program!.plan, days, weeklySets: weeklySetsOf(days) });
+        }
+        saveCoachNotes(session!.user.id, decisions, advice);
+      }
+    } catch {
+      // decisions are advice; the workout itself is already saved
+    }
     setBusy(false);
     const trained = d.items.filter((it) => it.sets.some((r) => r.done)).map((it) => EXERCISE_BY_ID[it.exerciseId].muscle);
-    setSummary({ sets: sets.length, prs, next, cooldown: cooldown(trained) });
+    setSummary({ sets: sets.length, prs, next, cooldown: cooldown(trained), deload, advice });
   }
 
   function confirmFinish() {
@@ -244,9 +306,32 @@ export default function Workout() {
           {summary.prs.length ? <T bold style={{ color: C.accent }}>New best: {summary.prs.join(', ')}</T> : null}
         </Card>
         <T bold>What changes next time</T>
+        {summary.deload ? <T muted size="sm">Deload week: sets and exercises stay as planned; decisions resume after it.</T> : null}
         {summary.next.map((n) => (
-          <Card key={n.name}><T bold>{n.name}</T><T muted>{n.text}</T></Card>
+          <Card key={n.exerciseId}>
+            <T bold>{n.name}</T>
+            <T muted>{n.text}</T>
+            {n.decision && !summary.deload ? (<>
+              <View style={[s.row, { justifyContent: 'space-between' }]}>
+                <T bold style={{ flex: 1, color: n.decision.kind === 'progressing' || n.decision.kind === 'too_new' ? C.muted : C.accent }}>{n.decision.title}</T>
+                <Why e={n.decision.explanation} changed={n.decision.kind !== 'progressing' && n.decision.kind !== 'too_new'} />
+              </View>
+              {n.decision.kind === 'swap' && n.decision.swapTo && !swapped.includes(n.exerciseId) ? (
+                <Button title={`Swap in plan: ${EXERCISE_BY_ID[n.decision.swapTo].name}`} onPress={() => swapPlanned(n.exerciseId, n.decision!.swapTo!)} />
+              ) : null}
+              {swapped.includes(n.exerciseId) ? <T muted size="sm">Swapped in your plan.</T> : null}
+            </>) : null}
+          </Card>
         ))}
+        {summary.advice ? (
+          <Card style={{ borderColor: C.accent }}>
+            <View style={[s.row, { justifyContent: 'space-between' }]}>
+              <T bold style={{ flex: 1 }}>Should you change your program?</T>
+              <Why e={summary.advice} changed />
+            </View>
+            <T muted>{summary.advice.text}</T>
+          </Card>
+        ) : null}
         {summary.cooldown.length ? (<>
           <T bold>Cooldown (optional)</T>
           {summary.cooldown.map((c) => {
@@ -329,7 +414,7 @@ export default function Workout() {
               <Why e={it.suggestion.explanation} changed={it.changed} />
             </View>
             <T muted>
-              {w === null ? 'Calibrate: pick your starting weight' : `${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`} · {it.planned.rirTarget === 0 ? 'to failure' : `${it.planned.rirTarget} rep short of failure`}
+              {w === null ? 'Calibrate: pick your starting weight' : `${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`} · {effortLabel(it.planned)}
             </T>
             <View style={s.row}>
               <T muted size="sm" style={{ flex: 1 }}>

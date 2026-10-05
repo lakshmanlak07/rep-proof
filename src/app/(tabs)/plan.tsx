@@ -39,7 +39,7 @@ export default function Plan() {
     const saved = await attempt(async () => {
       await updateProfile(profile!.id, { days });
       // Logged weights carry over: suggestions read history by exercise, not by program.
-      await saveProgram(toProfile({ ...profile!, days }, plan.emphasis), split, 0);
+      await saveProgram(toProfile({ ...profile!, days }, plan), split, 0);
     }, 'rebuild your plan');
     if (!saved) return;
     track('schedule_changed', { days, split });

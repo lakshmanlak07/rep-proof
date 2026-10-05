@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { View } from 'react-native';
 
 import { recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
-import type { Experience, Goal, Muscle, Pattern, Setup, SplitId, Unit } from '@/engine/types.ts';
+import type { Effort, Experience, Goal, Muscle, Pattern, Setup, SplitId, Unit } from '@/engine/types.ts';
 import { ok, saveProgram, toProfile, track, useData, type ProfileRow } from '@/lib/data';
 import { clearPending, getPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
-import { AVOID_OPTIONS, EXPERIENCE_OPTIONS, GOAL_OPTIONS, MINUTE_OPTIONS, MUSCLE_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
+import { AVOID_OPTIONS, EFFORT_OPTIONS, EXPERIENCE_OPTIONS, GOAL_OPTIONS, MINUTE_OPTIONS, MUSCLE_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
 import { Button, C, Choice, Field, Screen, T } from '@/ui';
 
-const STEPS = ['experience', 'setup', 'goal', 'days', 'minutes', 'body', 'height', 'sex', 'avoid', 'weak', 'strong', 'split'] as const;
+const STEPS = ['experience', 'setup', 'goal', 'days', 'minutes', 'body', 'height', 'sex', 'avoid', 'weak', 'strong', 'effort', 'split'] as const;
 
 export default function Onboarding() {
   const { session, refresh } = useData();
@@ -28,6 +28,7 @@ export default function Onboarding() {
   const [avoid, setAvoid] = useState<Pattern[]>([]);
   const [weak, setWeak] = useState<Muscle[]>([]);
   const [strong, setStrong] = useState<Muscle[]>([]);
+  const [effort, setEffort] = useState<Effort>('last_failure');
   const [split, setSplit] = useState<SplitId | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -50,7 +51,7 @@ export default function Onboarding() {
         bodyweight: Number(bodyweight), height_cm: heightCm, nutrition_phase: 'maintain', sex: sex === 'none' ? null : sex, unit, avoid,
       };
       ok(await supabase.from('profiles').upsert(row));
-      await saveProgram(toProfile({ ...row, plan_tier: 'free', deload_until: null }, { weak, strong }), chosen);
+      await saveProgram(toProfile({ ...row, plan_tier: 'free', deload_until: null }, { emphasis: { weak, strong }, effort }), chosen);
       // First point of the bodyweight trend; best effort (table arrives with migration 3).
       await supabase.from('bodyweight_logs').upsert({ weight: row.bodyweight }, { onConflict: 'user_id,logged_on' });
       clearPending();
@@ -146,6 +147,11 @@ export default function Onboarding() {
         <Choice value={strong} onChange={(m) => setStrong(strong.includes(m) ? strong.filter((x) => x !== m) : [...strong, m])}
           options={MUSCLE_OPTIONS.filter((o) => !weak.includes(o.value))} />
         <Button kind="primary" title={strong.length ? 'Continue' : 'None, continue'} onPress={next} />
+      </>)}
+      {name === 'effort' && (<>
+        <T size="lg">How hard should sets go?</T>
+        <T muted>Getting close to failure matters; reaching it every set is optional. You can change this any time.</T>
+        <Choice value={effort} onChange={pick(setEffort)} options={EFFORT_OPTIONS} />
       </>)}
       {name === 'split' && days && (<>
         <T size="lg">Your split</T>
