@@ -104,6 +104,8 @@ export function Section({ title, action, onAction, children }: { title: string; 
 export const Divider = () => <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: C.border }} />;
 
 // ───────────────────────── Press feedback ─────────────────────────
+const OUTER_KEYS = new Set(['flex', 'flexGrow', 'flexShrink', 'flexBasis', 'alignSelf', 'width', 'minWidth', 'maxWidth',
+  'margin', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'marginHorizontal', 'marginVertical']);
 /** Pressable with a subtle spring scale. All tappable cards and buttons use it. */
 export function Press({ children, onPress, style, disabled, scaleTo = 0.975, ...rest }: {
   children: ReactNode; onPress?: () => void; style?: StyleProp<ViewStyle>; disabled?: boolean; scaleTo?: number;
@@ -111,11 +113,16 @@ export function Press({ children, onPress, style, disabled, scaleTo = 0.975, ...
 }) {
   const k = useSharedValue(1);
   const a = useAnimatedStyle(() => ({ transform: [{ scale: k.value }] }));
+  // Sizing in a row (flex, width, alignSelf, margins) must sit on the Pressable itself, or a card
+  // asked to fill its row shrinks to its content.
+  const flat = StyleSheet.flatten(style) ?? {};
+  const outer = Object.fromEntries(Object.entries(flat).filter(([key]) => OUTER_KEYS.has(key))) as ViewStyle;
+  const inner = Object.fromEntries(Object.entries(flat).filter(([key]) => !key.startsWith('margin'))) as ViewStyle;
   return (
-    <Pressable disabled={disabled} onPress={onPress} accessibilityRole="button" {...rest}
+    <Pressable disabled={disabled} onPress={onPress} accessibilityRole="button" style={outer} {...rest}
       onPressIn={() => { k.set(withTiming(scaleTo, { duration: 90 })); }}
       onPressOut={() => { k.set(withSpring(1, { damping: 14, stiffness: 260 })); }}>
-      <Animated.View style={[a, style]}>{children}</Animated.View>
+      <Animated.View style={[a, inner]}>{children}</Animated.View>
     </Pressable>
   );
 }
