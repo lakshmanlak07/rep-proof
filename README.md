@@ -60,7 +60,19 @@ The app offers "Mobile number" sign-in. Until it is switched on, it tells users 
 Supabase dashboard -> Authentication -> Sign In / Providers -> Phone: enable it and connect an SMS
 provider (Twilio, MessageBird, Vonage or Textlocal; needs an account with that provider, texts are paid).
 
-## Training model
+## Philosophy
 
-1 to 3 working sets per exercise, to failure (beginners stop 1 rep short), plus one warm-up set:
-2 sets by default, 3 for weak points, 1 for strong points (set in onboarding or Settings -> Edit training profile).
+Evidence-based training without the guesswork. Evidence first. Individual response second.
+Algorithmic recommendations third. Hype never. Every recommendation carries a tier:
+Tier 1 direct evidence, Tier 2 principle-based, Tier 3 RepProof rule (never presented as science).
+The science screen lists the principles, tiers, topics with verified studies, cautions and open debates
+(`src/engine/science.ts`).
+
+## Training model and decision engine
+
+- Every exercise: one warm-up set (~80% x 5), then 1-3 working sets: 2 by default, 3 for weak points, 1 for strong points.
+- Effort styles: last set to failure with earlier sets ~2 in reserve (default; beginners 1 short), all sets 1-3 in reserve, or every set to failure.
+- Train -> Record -> Interpret -> Adjust (`src/engine/decisions.ts`): after each workout every lift gets a decision with its
+  reason and tier: progressing, add a set (stalled 2 sessions, recovery fine, up to 3), one set fewer (falling performance +
+  rough check-ins), recover first, swap suggestion (stuck 4 sessions at 3 sets), or train closer to target effort.
+  Set changes go into the plan automatically (not during deloads, never on pinned lifts); swaps need the user's OK.

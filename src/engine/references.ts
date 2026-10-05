@@ -152,4 +152,35 @@ export const REFERENCES: Record<string, Reference> = {
     population: 'Narrative review',
     finding: 'The surplus size that best supports muscle gain is unknown; common recommendations have not been validated.',
   }),
+  // Added 2026-10-04 for the caution topics (checked against PubMed records and abstracts).
+  lp_wolf: r({
+    id: 'lp_wolf', pmid: '39959841', doi: '10.7717/peerj.18904', type: 'Randomized trial (within-person)',
+    citation: 'Wolf et al. (2025). Lengthened partial repetitions elicit similar muscular adaptations as full range of motion repetitions during resistance training in trained individuals. PeerJ 13:e18904.',
+    population: 'Trained adults, upper body, 8 weeks',
+    finding: 'Lengthened partials and full range of motion gave similar arm muscle growth and strength-endurance.',
+  }),
+  lp_multisite: r({
+    id: 'lp_multisite', pmid: '41055237', doi: '10.1080/02640414.2025.2567805', type: 'Multi-site randomized trial (pre-registered)',
+    citation: 'Gschneidner et al. (2025). The effects of lengthened-partial range of motion resistance training of the limbs on arm and thigh muscle area: a multi-site randomised trial. J Sports Sci 43(23):2963-2976.',
+    population: '297 participants at 15 sites, 12 weeks',
+    finding: 'Arm and thigh muscle growth were practically the same with lengthened partials and full range of motion.',
+  }),
+  damage: r({
+    id: 'damage', pmid: '29282529', doi: '10.1007/s00421-017-3792-9', type: 'Review',
+    citation: 'Damas, Libardi & Ugrinowitsch (2018). The development of skeletal muscle hypertrophy through resistance training: the role of muscle damage and muscle protein synthesis. Eur J Appl Physiol 118(3):485-500.',
+    population: 'Review of training studies',
+    finding: 'Muscle damage does not drive muscle growth; programs causing little damage built similar muscle and strength.',
+  }),
+  creatine: r({
+    id: 'creatine', pmid: '35986981', doi: '10.1016/j.nut.2022.111791', type: 'Systematic review and meta-analysis of randomized trials',
+    citation: 'Delpino et al. (2022). Influence of age, sex, and type of exercise on the efficacy of creatine supplementation on lean body mass: a systematic review and meta-analysis of randomized clinical trials. Nutrition 103-104:111791.',
+    population: '35 trials, 1,192 participants',
+    finding: 'Creatine with resistance training added about 1.1 kg of lean mass versus placebo; no clear effect without training.',
+  }),
+  caffeine: r({
+    id: 'caffeine', pmid: '30926628', doi: '10.1136/bjsports-2018-100278', type: 'Umbrella review of 21 meta-analyses',
+    citation: 'Grgic et al. (2020). Wake up and smell the coffee: caffeine supplementation and exercise performance, an umbrella review of 21 published meta-analyses. BJSM 54(11):681-688.',
+    population: '21 meta-analyses, mostly young men',
+    finding: 'Caffeine improved muscle strength, muscle endurance and power, with moderate-quality evidence.',
+  }),
 };

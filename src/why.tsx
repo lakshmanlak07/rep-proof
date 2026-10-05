@@ -9,9 +9,9 @@ import { track } from '@/lib/data';
 import { Button, C, Card, T } from '@/ui';
 
 export const LABELS: Record<EvidenceLabel, { title: string; hint: string; color: string }> = {
-  direct: { title: 'Direct evidence', hint: 'A study tested this specific thing.', color: '#5BD6A0' },
-  principle: { title: 'Principle-based', hint: 'No study on this exact item, but it follows a studied principle.', color: '#7DB7FF' },
-  rule: { title: 'RepProof rule', hint: 'Our design choice. No direct study, and we say so.', color: '#C9B6FF' },
+  direct: { title: 'Tier 1 · Direct evidence', hint: 'Supported directly by high-quality research.', color: '#5BD6A0' },
+  principle: { title: 'Tier 2 · Principle-based', hint: 'Built from several findings. Sensible, but not itself tested as a universal rule.', color: '#7DB7FF' },
+  rule: { title: 'Tier 3 · RepProof rule', hint: 'A RepProof decision rule built from the evidence. Not a scientific finding, and we say so.', color: '#C9B6FF' },
 };
 
 export function Badge({ label }: { label: EvidenceLabel }) {

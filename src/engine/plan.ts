@@ -174,7 +174,7 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
 
   const list = (ms: Muscle[]) => ms.map((m) => MUSCLE_NAMES[m].toLowerCase()).join(', ');
   explanations.push({
-    text: `1 to 3 hard sets per exercise, plus a warm-up set: 2 by default${emphasis.weak.length ? `, 3 for your weak points (${list(emphasis.weak)})` : ', 3 for weak points'}${emphasis.strong.length ? `, 1 for your strong points (${list(emphasis.strong)})` : ', 1 for strong points'}. Fewer, harder sets keep fatigue in check. On average, more weekly sets meant more growth, which is why weak points get the extra set; the exact numbers are our choice.`,
+    text: `1 to 3 hard sets per exercise, plus a warm-up set: 2 by default${emphasis.weak.length ? `, 3 for your weak points (${list(emphasis.weak)})` : ', 3 for weak points'}${emphasis.strong.length ? `, 1 for your strong points (${list(emphasis.strong)})` : ', 1 for strong points'}. Fewer, harder sets keep fatigue in check. On average, more weekly sets meant more growth with diminishing returns, so sets then adapt to you: a lift that stalls for 2 sessions while you recover well gets a set (up to 3), and one that goes backwards with rough check-ins loses one. The exact numbers are our rules.`,
     label: 'rule',
     refIds: ['volume_dose'],
   });

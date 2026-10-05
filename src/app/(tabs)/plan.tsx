@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Modal, Pressable, View } from 'react-native';
 
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
 import { MUSCLE_NAMES, MUSCLES, recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
-import type { PlannedExercise, SplitId } from '@/engine/types.ts';
-import { isDeload, localDate, saveProgram, toProfile, track, updatePlan, updateProfile, useData } from '@/lib/data';
+import type { Muscle, PlannedExercise, SplitId } from '@/engine/types.ts';
+import { supabase } from '@/lib/supabase';
+import { isDeload, localDate, saveProgram, startOfWeek, toProfile, track, updatePlan, updateProfile, useData } from '@/lib/data';
 import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
 import { alert, attempt } from '@/lib/alert';
 import { WhyBody } from '@/why';
@@ -14,6 +15,17 @@ export default function Plan() {
   const { profile, program, refresh } = useData();
   const [editing, setEditing] = useState<{ day: number; ex: number } | null>(null);
   const [schedule, setSchedule] = useState<{ days: number; split: SplitId } | null>(null);
+  const [doneSets, setDoneSets] = useState<Partial<Record<Muscle, number>>>({});
+  useFocusEffect(useCallback(() => {
+    supabase.from('logged_sets').select('exercise_id').gte('created_at', startOfWeek()).then(({ data }) => {
+      const counts: Partial<Record<Muscle, number>> = {};
+      for (const r of data ?? []) {
+        const m = EXERCISE_BY_ID[r.exercise_id]?.muscle;
+        if (m) counts[m] = (counts[m] ?? 0) + 1;
+      }
+      setDoneSets(counts);
+    });
+  }, []));
   if (!profile || !program) return null;
   const { plan } = program;
   const deload = isDeload(profile.deload_until);
@@ -87,10 +99,23 @@ export default function Plan() {
       ))}
 
       <Card>
-        <T bold>Weekly sets per muscle</T>
-        {MUSCLES.filter((m) => plan.weeklySets[m]).map((m) => (
-          <T key={m} muted>{m[0].toUpperCase() + m.slice(1)}: {plan.weeklySets[m]}</T>
-        ))}
+        <T bold>Volume this week: done / planned hard sets</T>
+        {MUSCLES.filter((m) => plan.weeklySets[m]).map((m) => {
+          const planned = plan.weeklySets[m]!;
+          const done = doneSets[m] ?? 0;
+          return (
+            <View key={m} style={{ gap: 4 }}>
+              <View style={[s.row, { justifyContent: 'space-between' }]}>
+                <T muted>{MUSCLE_NAMES[m]}</T>
+                <T bold style={{ color: done >= planned ? C.accent : C.text }}>{done} / {planned}</T>
+              </View>
+              <View style={{ height: 6, borderRadius: 3, backgroundColor: C.border, overflow: 'hidden' }}>
+                <View style={{ width: `${Math.min(100, (100 * done) / planned)}%`, height: 6, backgroundColor: C.accent }} />
+              </View>
+            </View>
+          );
+        })}
+        <T muted size="sm">Counted automatically from your logged working sets (Monday to Sunday). Warm-ups do not count.</T>
       </Card>
 
       <T size="lg">Why this plan</T>

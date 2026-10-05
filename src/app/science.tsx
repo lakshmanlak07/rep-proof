@@ -1,24 +1,42 @@
 import { useState } from 'react';
-import { Pressable } from 'react-native';
+import { Pressable, View } from 'react-native';
 
-import { TOPICS, UNKNOWNS } from '@/engine/science.ts';
+import { CAUTIONS, DEBATES, MISSION, MOTTO, POSITIONING, PRINCIPLES, TIERS, TOPICS } from '@/engine/science.ts';
 import { track } from '@/lib/data';
-import { Card, s, Screen, T } from '@/ui';
-import { Badge, LABELS, RefLinks } from '@/why';
+import { C, Card, s, Screen, T } from '@/ui';
+import { Badge, RefLinks } from '@/why';
 
 export default function Science() {
   const [open, setOpen] = useState<string | null>(null);
 
   return (
     <Screen edges={['bottom']}>
-      <T>Every rule in RepProof carries a label. Here is what the research shows, what it does not, and what we chose.</T>
-      {(['direct', 'principle', 'rule'] as const).map((l) => (
-        <Card key={l} style={[s.row, { paddingVertical: 10 }]}>
-          <Badge label={l} />
-          <T muted size="sm" style={{ flex: 1 }}>{LABELS[l].hint}</T>
+      <T size="lg">{POSITIONING}</T>
+      <T muted>{MISSION}</T>
+      <Card style={{ borderColor: C.accent }}>
+        <T bold>{MOTTO}</T>
+      </Card>
+
+      <T size="lg">What everything is built on</T>
+      <Card>
+        {PRINCIPLES.map((p, i) => (
+          <View key={p} style={[s.row, { alignItems: 'flex-start' }]}>
+            <T bold style={{ width: 22, color: C.accent }}>{i + 1}</T>
+            <T style={{ flex: 1 }}>{p}</T>
+          </View>
+        ))}
+      </Card>
+
+      <T size="lg">How to read the labels</T>
+      {TIERS.map((tier) => (
+        <Card key={tier.label}>
+          <Badge label={tier.label} />
+          <T>{tier.meaning}</T>
+          <T muted size="sm">Example: {tier.example}</T>
         </Card>
       ))}
 
+      <T size="lg">The evidence, topic by topic</T>
       {TOPICS.map((t) => {
         const expanded = open === t.title;
         return (
@@ -33,17 +51,25 @@ export default function Science() {
                 <T muted>{t.doesNotShow}</T>
                 <T bold>In RepProof</T>
                 <T muted>{t.inApp}</T>
-                <T bold>Studies</T>
-                <RefLinks ids={t.refIds} />
+                {t.refIds.length ? (<>
+                  <T bold>Studies</T>
+                  <RefLinks ids={t.refIds} />
+                </>) : <T muted size="sm">No study measures this directly; this is our rule, labeled as one.</T>}
               </>) : <T muted size="sm">Tap for details and studies</T>}
             </Card>
           </Pressable>
         );
       })}
 
-      <T size="lg">{"What we don't know yet"}</T>
+      <T size="lg">Where we stay cautious</T>
       <Card>
-        {UNKNOWNS.map((u) => <T key={u} muted>• {u}</T>)}
+        {CAUTIONS.map((c) => <T key={c} muted>• {c}</T>)}
+      </Card>
+
+      <T size="lg">Still debated</T>
+      <Card>
+        {DEBATES.map((d) => <T key={d} muted>• {d}</T>)}
+        <T size="sm">{"When the evidence is unclear, we say so instead of picking a side."}</T>
       </Card>
       <T muted size="sm">Studies checked against PubMed records, October 2026. Not medical advice.</T>
     </Screen>

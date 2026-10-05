@@ -12,6 +12,7 @@ import type { Explanation } from '@/engine/types.ts';
 import { attempt } from '@/lib/alert';
 import { daysSince, isDeload, localDate, must, recentWorkouts, track, updateProfile, useData } from '@/lib/data';
 import { dayLogs, sum, type Macros, type Meal } from '@/lib/food';
+import { loadCoachNotes, type CoachNotes } from '@/lib/coach';
 import { newBests, streakWeeks, weekDots, type Best, type SetRecord } from '@/lib/stats';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Card, s, Screen, T } from '@/ui';
@@ -32,12 +33,14 @@ export default function Home() {
   const [founding, setFounding] = useState(false);
   const [tip, setTip] = useState<Topic | null>(null);
   const [meal, setMeal] = useState<Meal>('snack');
+  const [coach, setCoach] = useState<CoachNotes | null>(null);
   const userId = profile?.id;
 
   useFocusEffect(useCallback(() => {
     const now = new Date();
     setTip(TOPICS[Math.floor(now.getTime() / 864e5) % TOPICS.length]); // a different topic each day
     setMeal(mealNow(now.getHours()));
+    if (userId) setCoach(loadCoachNotes(userId));
     const since = (days: number) => new Date(now.getTime() - days * 864e5).toISOString();
     (async () => {
       const w = must(await supabase.from('workouts').select('id, day_name, finished_at, logged_sets(count)')
@@ -127,6 +130,31 @@ export default function Home() {
         <T muted size="sm">Plus 1 warm-up set before each exercise.</T>
         <Button kind="primary" title="Start workout" onPress={() => router.push('/workout')} style={{ marginTop: 6 }} />
       </Card>
+
+      {coach?.decisions.length ? (
+        <Card>
+          <T muted size="sm">COACH NOTES · WHAT TO DO NEXT</T>
+          {[...coach.decisions]
+            .sort((a, b) => Number(a.kind === 'progressing' || a.kind === 'too_new') - Number(b.kind === 'progressing' || b.kind === 'too_new'))
+            .slice(0, 4)
+            .map((d) => (
+              <View key={d.exerciseId} style={[s.row, { alignItems: 'flex-start' }]}>
+                <View style={{ flex: 1 }}>
+                  <T bold>{EXERCISE_BY_ID[d.exerciseId]?.name ?? d.exerciseId}</T>
+                  <T muted size="sm" style={{ color: d.kind === 'progressing' || d.kind === 'too_new' ? C.muted : C.accent }}>{d.title}</T>
+                </View>
+                <Why e={d.explanation} />
+              </View>
+            ))}
+          {coach.advice ? (
+            <View style={[s.row, { alignItems: 'flex-start' }]}>
+              <T style={{ flex: 1 }}>{coach.advice.text}</T>
+              <Why e={coach.advice} changed />
+            </View>
+          ) : null}
+          <T muted size="sm">From your last sessions. Set changes are already in your plan.</T>
+        </Card>
+      ) : null}
 
       <Card>
         <View style={[s.row, { justifyContent: 'space-between' }]}>

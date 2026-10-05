@@ -219,14 +219,16 @@ test('every reference is complete and every cited id exists', async () => {
   for (const c of NUTRITION_CARDS) if (c.explanation.label === 'rule') assert.deepEqual(c.explanation.refIds.filter((r) => r !== 'surplus'), []);
 });
 
-test('science library cites real references and covers all three labels', async () => {
-  const { TOPICS, UNKNOWNS } = await import('./science.ts');
+test('science library: real references, honest tiers, cautions and debates', async () => {
+  const { TOPICS, TIERS, CAUTIONS, DEBATES, PRINCIPLES } = await import('./science.ts');
   for (const topic of TOPICS) {
-    assert.ok(topic.refIds.length, `${topic.title} has no studies`);
+    // only a Tier 3 rule may stand without a study; Tier 1 and 2 must cite one
+    if (topic.label !== 'rule') assert.ok(topic.refIds.length, `${topic.title} has no studies`);
     for (const id of topic.refIds) assert.ok(REFERENCES[id], `${topic.title}: unknown ref ${id}`);
   }
   assert.deepEqual(new Set(TOPICS.map((x) => x.label)), new Set(['direct', 'principle', 'rule']));
-  assert.ok(UNKNOWNS.length > 0);
+  assert.deepEqual(TIERS.map((x) => x.label), ['direct', 'principle', 'rule']);
+  assert.ok(CAUTIONS.length >= 8 && DEBATES.length > 0 && PRINCIPLES.length === 8);
 });
 
 test('pinned reps become the target: hitting them adds weight, never reads as a miss', async () => {

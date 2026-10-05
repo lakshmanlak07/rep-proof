@@ -1,24 +1,118 @@
 import type { EvidenceLabel } from './types.ts';
 
-// Evidence library shown in the app. Built from abstracts checked on 2026-10-01 (see references.ts).
-// Creators are never named here (PRD): they suggested topics, research decides.
+// RepProof's scientific identity and evidence library, shown in the app.
+// Built from abstracts checked against PubMed (see references.ts). Creators are never named here (PRD):
+// they suggest topics; research decides.
+
+export const POSITIONING = 'Evidence-based training without the guesswork.';
+export const MOTTO = 'Evidence first. Individual response second. Algorithmic recommendations third. Hype never.';
+export const MISSION =
+  'RepProof separates established findings from coaching principles and from its own rules, and turns them into training decisions that learn from you. It does not promise one optimal program for everyone.';
+
+/** The small set of robust principles everything in the app is built on. */
+export const PRINCIPLES: string[] = [
+  'Train hard enough to give a meaningful stimulus.',
+  'Improve performance over time: load, reps or execution.',
+  'Do enough productive volume, not the most you can survive.',
+  'Use a reasonably broad range of reps.',
+  'Manage fatigue: getting close to failure matters; reaching it every set is optional.',
+  'Eat enough protein and match calories to your goal.',
+  'Recover: sleep, food and stress decide how much training pays off.',
+  'Adjust to how you respond, not to fixed numbers.',
+];
+
+/** The three evidence tiers every recommendation carries (see why.tsx for the badges). */
+export const TIERS: { label: EvidenceLabel; name: string; meaning: string; example: string }[] = [
+  {
+    label: 'direct', name: 'Tier 1: Direct evidence',
+    meaning: 'Supported directly by high-quality research: meta-analyses, systematic reviews, randomized trials.',
+    example: 'With weekly sets equal, training frequency made no meaningful difference to growth.',
+  },
+  {
+    label: 'principle', name: 'Tier 2: Principle-based',
+    meaning: 'A practical recommendation built from several findings. Sensible, but not itself tested as a universal rule.',
+    example: 'Earlier sets stop about 2 reps short and the last set goes to failure.',
+  },
+  {
+    label: 'rule', name: 'Tier 3: RepProof rule',
+    meaning: 'A product decision that turns evidence into action. Not a scientific discovery, and we never present it as one.',
+    example: 'Add one set when a lift stalls for 2 sessions and your check-ins look fine.',
+  },
+];
+
+/** Where RepProof deliberately does not turn uncertainty into certainty. */
+export const CAUTIONS: string[] = [
+  'Stretch-focused training is promising, but "stretch-biased exercises are superior" is not established.',
+  'Lengthened partials matched full range of motion in trials; they are an option, not a requirement.',
+  'No weekly set number is optimal for everyone. Volume landmarks like MEV and MRV are models, not biology.',
+  'Reps in reserve is an estimate, not a measurement.',
+  'Pump and soreness are not measures of muscle growth.',
+  'Stimulus-to-fatigue ratio is a useful coaching idea, not a measurable quantity.',
+  'Supplements are not equal: a few have strong evidence; most do not.',
+  'One viral study does not overturn a body of evidence.',
+];
+
+/** Open debates. RepProof shows them as debates, not settled answers. */
+export const DEBATES: string[] = [
+  'How much volume becomes "junk volume", and whether it exists for everyone.',
+  'Whether occasional all-out sets add anything beyond sets taken close to failure.',
+  'Whether stretch-biased exercises grow specific muscles more.',
+  'How close to failure beginners should train while learning technique.',
+  'The best rate of weight gain when bulking, and of loss when cutting, for lean lifters.',
+  'The best calorie surplus for building muscle.',
+  'Whether protein timing changes long-term growth.',
+  'One "best" exercise for any muscle.',
+];
+
 export type Topic = {
   title: string;
   label: EvidenceLabel;
   shows: string;
   doesNotShow: string;
   inApp: string;
-  refIds: string[];
+  refIds: string[]; // may be empty only for Tier 3 rules with no supporting study
 };
 
 export const TOPICS: Topic[] = [
   {
+    title: 'Progressive overload',
+    label: 'principle',
+    shows: 'Adding reps and adding weight both built muscle over 8 weeks; strength slightly favored adding weight. Adjusting load by reps in reserve beat fixed loading for squat strength.',
+    doesNotShow: 'That one progression method is best long term.',
+    inApp: 'Double progression: add reps to the top of the range, then add weight. Every session suggests the next step and says why.',
+    refIds: ['progression', 'rir_autoreg'],
+  },
+  {
     title: 'Weekly volume',
     label: 'principle',
-    shows: 'More hard sets per muscle per week tends to mean more growth.',
-    doesNotShow: 'One best number for everyone. Comparisons of under 5, 5-9 and 10+ sets were only a trend.',
-    inApp: '1 to 3 hard sets per exercise: 2 by default, 3 for weak points you choose, 1 for strong points. Fewer, harder sets keep fatigue down; weak points get the extra volume.',
+    shows: 'More hard sets per muscle per week tends to mean more growth, with diminishing returns.',
+    doesNotShow: 'One best number for everyone. Comparisons of under 5, 5-9 and 10+ sets were only a trend, and volume landmarks (MEV, MAV, MRV) are models, not constants.',
+    inApp: '1 to 3 sets per exercise: 2 by default, 3 for weak points, 1 for strong points. When a lift stalls for 2 sessions and recovery looks fine, it gets a set (up to 3). When performance falls with rough check-ins, it loses one.',
     refIds: ['volume_dose'],
+  },
+  {
+    title: 'Training to failure',
+    label: 'principle',
+    shows: 'Failure was not needed for strength or size on average. Trained lifters saw a small extra size benefit.',
+    doesNotShow: 'That every set must go to failure, or that failure is harmful.',
+    inApp: 'Default: earlier sets about 2 reps short, last set to failure (beginners 1 short). You can choose all sets 1-3 short, or every set to failure.',
+    refIds: ['failure'],
+  },
+  {
+    title: 'Reps in reserve (RIR)',
+    label: 'principle',
+    shows: 'Guessing reps left is imperfect but improves with heavier loads and closer to failure. Trained lifters were off by under one rep on the bench press.',
+    doesNotShow: 'That anyone judges RIR exactly on every exercise. It is an estimate.',
+    inApp: 'You log RIR per set. Each set is compared with its own target; consistently easy sets speed up progression and trigger a "train closer" note.',
+    refIds: ['rir_accuracy', 'rir_bench'],
+  },
+  {
+    title: 'Load and rep ranges',
+    label: 'principle',
+    shows: 'Muscle grows similarly with light and heavy loads when sets are hard. Heavy loads build more max strength.',
+    doesNotShow: 'A special "hypertrophy zone" like 8-12 reps.',
+    inApp: 'Reps from 6 to 15: 6-10 on big lifts (5-8 for strength), 10-15 on isolation work.',
+    refIds: ['load_meta'],
   },
   {
     title: 'Training frequency',
@@ -29,44 +123,20 @@ export const TOPICS: Topic[] = [
     refIds: ['frequency_meta', 'frequency_2v3', 'frequency_3v6'],
   },
   {
-    title: 'Load and rep ranges',
-    label: 'principle',
-    shows: 'Muscle grows similarly with light and heavy loads when sets are hard. Heavy loads build more max strength.',
-    doesNotShow: 'A special "hypertrophy zone" like 8-12 reps.',
-    inApp: 'Rep ranges follow your goal: heavier on big lifts for strength, 6-12 for muscle.',
-    refIds: ['load_meta'],
-  },
-  {
-    title: 'Training to failure',
-    label: 'principle',
-    shows: 'Failure was not needed for strength or size on average. Trained lifters saw a small extra size benefit.',
-    doesNotShow: 'That every set must go to failure, or that failure is harmful.',
-    inApp: 'Working sets go to failure (beginners stop 1 rep short while learning the lifts). With only 1 to 3 sets, each set should count.',
-    refIds: ['failure'],
-  },
-  {
-    title: 'Reps in reserve (RIR)',
-    label: 'principle',
-    shows: 'Guessing reps left is imperfect but improves with heavier loads and closer to failure. Trained lifters were off by under one rep on the bench press. Adjusting load by RIR beat fixed loading for squat strength.',
-    doesNotShow: 'That everyone judges RIR exactly on every exercise.',
-    inApp: 'You log RIR on each set. For intermediate and advanced lifters it also adjusts next session’s weight.',
-    refIds: ['rir_accuracy', 'rir_bench', 'rir_autoreg'],
-  },
-  {
-    title: 'Progression',
-    label: 'principle',
-    shows: 'Adding reps and adding weight both built muscle over 8 weeks; strength slightly favored adding weight.',
-    doesNotShow: 'That one progression method is best long term.',
-    inApp: 'Double progression: add reps to the top of the range, then add weight.',
-    refIds: ['progression', 'rir_autoreg'],
-  },
-  {
     title: 'Rest between sets',
     label: 'principle',
     shows: 'Resting over 60 seconds gave a small growth benefit, with little difference past 90 seconds. In trained men, 3 minutes beat 1 minute for strength and size.',
     doesNotShow: 'That you need 3-5 minutes of rest to grow.',
     inApp: 'Rest timer: 90 seconds on single-joint lifts, 2.5 minutes on big compounds. Rest longer if you need to.',
     refIds: ['rest', 'rest_long', 'rest_review'],
+  },
+  {
+    title: 'Recovery and readiness',
+    label: 'principle',
+    shows: 'Self-reported well-being tracked training stress better than objective tests in athletes.',
+    doesNotShow: 'A proven readiness score, or how much to change a workout based on one.',
+    inApp: 'Check-ins are inputs, not diagnoses. A rough day cuts a set and blocks weight increases; rough check-ins stop the app adding volume to a stalled lift. Those cut-offs are our rules.',
+    refIds: ['checkins', 'autoreg_review'],
   },
   {
     title: 'Deloads',
@@ -77,14 +147,6 @@ export const TOPICS: Topic[] = [
     refIds: ['deload'],
   },
   {
-    title: 'Readiness check-ins',
-    label: 'principle',
-    shows: 'Self-reported well-being tracked training stress better than objective tests in athletes.',
-    doesNotShow: 'A proven readiness score, or how much to change a workout based on one.',
-    inApp: 'A rough check-in cuts one set per exercise and blocks weight increases. Those cut-offs are our choice.',
-    refIds: ['checkins', 'autoreg_review'],
-  },
-  {
     title: 'Warm-ups',
     label: 'principle',
     shows: 'In 15 trained men, a warm-up at 80% of the working load led to more total reps than lighter warm-ups.',
@@ -93,12 +155,28 @@ export const TOPICS: Topic[] = [
     refIds: ['warmup'],
   },
   {
-    title: 'Range of motion and stretch',
+    title: 'Range of motion, stretch and partials',
     label: 'principle',
-    shows: 'Full range, or partial reps at long muscle lengths, grew several muscles more than partials at short lengths. Effects differed by muscle.',
-    doesNotShow: 'That lengthened partials beat full reps on every exercise. A 2026 review called the evidence mixed.',
-    inApp: 'Cues favor full range with a deep stretch. Lengthened partials are not prescribed yet.',
-    refIds: ['rom', 'long_length'],
+    shows: 'Full range, or partials at long muscle lengths, grew several muscles more than partials at short lengths. In two trials (one with 297 people), lengthened partials and full range gave practically the same growth.',
+    doesNotShow: 'That stretch-biased exercises or lengthened partials are superior. The evidence is mixed.',
+    inApp: 'Cues favor full range with a good stretch. Lengthened partials are a valid option, not a requirement.',
+    refIds: ['rom', 'long_length', 'lp_wolf', 'lp_multisite'],
+  },
+  {
+    title: 'Pump and soreness',
+    label: 'principle',
+    shows: 'Muscle damage does not drive muscle growth; programs that caused little damage built similar muscle and strength.',
+    doesNotShow: 'That soreness or a pump means a workout worked, or that no soreness means it did not.',
+    inApp: 'Soreness is only a recovery input in your check-in. Progress is judged by performance over time.',
+    refIds: ['damage'],
+  },
+  {
+    title: 'Stimulus-to-fatigue ratio',
+    label: 'rule',
+    shows: 'Nothing directly: it is a coaching framework for comparing exercises, not something research measures.',
+    doesNotShow: 'That any exercise has a known, objective stimulus-to-fatigue score.',
+    inApp: 'The app never ranks exercises by it. Swaps keep the same movement pattern and muscle.',
+    refIds: [],
   },
   {
     title: 'Protein',
@@ -124,14 +202,20 @@ export const TOPICS: Topic[] = [
     inApp: '+10% to gain and -20% to cut are our defaults. Adjust using your weight trend.',
     refIds: ['surplus'],
   },
-];
-
-export const UNKNOWNS: string[] = [
-  'The best number of weekly sets for each person and muscle.',
-  'The best calorie surplus for building muscle.',
-  'The best rate of weight gain or loss for lean, experienced lifters.',
-  'A readiness score that reliably tells you how to change a workout.',
-  'Whether protein timing changes long-term muscle growth.',
-  'Whether lengthened partials beat full reps for every muscle.',
-  'One "best" exercise for any muscle.',
+  {
+    title: 'Supplements',
+    label: 'direct',
+    shows: 'Creatine with resistance training added about 1.1 kg of lean mass versus placebo across 35 trials. Caffeine improved strength, muscle endurance and power (moderate-quality evidence).',
+    doesNotShow: 'That popular supplements work equally. Most have weak evidence.',
+    inApp: 'RepProof does not prescribe supplements or doses. Ask a qualified professional before taking any.',
+    refIds: ['creatine', 'caffeine'],
+  },
+  {
+    title: 'New and viral studies',
+    label: 'rule',
+    shows: 'Single studies often disagree; meta-analyses pool many of them, which is why they rank highest.',
+    doesNotShow: 'That one new study overturns everything before it.',
+    inApp: 'A study changes the app only when it is checked against its record and fits the wider evidence.',
+    refIds: [],
+  },
 ];
