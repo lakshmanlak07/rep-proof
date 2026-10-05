@@ -67,6 +67,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return;
       }
       let program = g.data as ProgramRow | null;
+      // Profile but no active plan (e.g. an interrupted rebuild): rebuild it, never re-run onboarding.
+      if (p.data && !program) {
+        try {
+          await saveProgram(toProfile(p.data));
+          const fresh = await supabase.from('programs').select('id, split, plan, next_day').eq('active', true).maybeSingle();
+          if (!fresh.error && fresh.data) program = fresh.data;
+        } catch {
+          // stays on onboarding's retry path
+        }
+      }
       // Plans saved by an older engine are rebuilt under the current rules (split and place in the week kept).
       if (p.data && program && (program.plan.version ?? 1) < ENGINE_VERSION) {
         try {
@@ -124,8 +134,10 @@ export async function saveProgram(profile: Profile, split?: SplitId, nextDay = 0
   const rpc = await supabase.rpc('replace_program', { p_split: plan.split, p_plan: plan, p_next_day: next_day });
   if (!rpc.error) return;
   if (rpc.error.code !== 'PGRST202') throw rpc.error; // PGRST202 = function not found
+  // Save the new plan inactive first: if anything fails, the old plan stays active (never left with none).
+  const created = must(await supabase.from('programs').insert({ split: plan.split, plan, next_day, active: false }).select('id').single());
   ok(await supabase.from('programs').update({ active: false }).eq('active', true));
-  ok(await supabase.from('programs').insert({ split: plan.split, plan, next_day }));
+  ok(await supabase.from('programs').update({ active: true }).eq('id', created.id));
 }
 
 /** Last `n` finished sessions of an exercise, newest first. */

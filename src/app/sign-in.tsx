@@ -1,7 +1,8 @@
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 
+import { getPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Choice, Field, Screen, T } from '@/ui';
 
@@ -91,7 +92,12 @@ export default function SignIn() {
       {method === 'email' ? (<>
         <Button kind="primary" title={signUp ? 'Create account' : 'Sign in'} loading={busy}
           disabled={!email.includes('@') || password.length < (signUp ? 8 : 1)} onPress={submitEmail} />
-        <Button kind="ghost" title={signUp ? 'I already have an account' : 'Create an account instead'} onPress={() => { setSignUp(!signUp); setError(''); }} />
+        <Button kind="ghost" title={signUp ? 'I already have an account' : 'Create an account instead'} onPress={() => {
+          // New accounts go through the age gate and disclaimer first.
+          if (!signUp && !getPending()?.disclaimerAt) return router.replace('/age');
+          setSignUp(!signUp);
+          setError('');
+        }} />
       </>) : !codeSent ? (
         <Button kind="primary" title="Text me a code" loading={busy} disabled={!normalizePhone(phone)} onPress={sendCode} />
       ) : (<>

@@ -51,9 +51,12 @@ export function recommendSplit(days: number): SplitId {
 // Bump when plan rules change; saved plans from older versions are rebuilt automatically.
 // 2 = founder model: 1-3 sets, warm-up every exercise, weak/strong points.
 // 3 = effort styles (default: last set to failure, others 1-3 in reserve), isolation reps 10-15.
-export const ENGINE_VERSION = 3;
+// 4 = sessions filled with second movements up to the time limit (max 8 exercises).
+export const ENGINE_VERSION = 4;
 
-const BIG: Muscle[] = ['back', 'chest', 'quads', 'hamstrings', 'glutes'];
+// Muscles that get a second movement first when a session has time (weak points always come before these).
+const SECOND_PRIORITY: Muscle[] = ['back', 'chest', 'quads', 'hamstrings', 'glutes', 'shoulders', 'biceps', 'triceps', 'calves'];
+const MAX_EXERCISES = 8;
 
 // Founder rule (2026-10-04): 1-3 working sets per exercise, never more.
 // 3 for weak points that need emphasis, 1 for strong points, 2 for everything else.
@@ -115,14 +118,17 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   const seen: Partial<Record<Muscle, number>> = {};
   const days: PlannedDay[] = dayTemplates.map((t) => {
     const trainable = t.muscles.filter((m) => pool.some((e) => e.muscle === m));
-    const slots: { m: Muscle; sets: number; second: boolean }[] = [];
-    for (const m of trainable) {
-      slots.push({ m, sets: setsFor(m, emphasis), second: false });
-      if (trainable.length <= 3 && BIG.includes(m) && pool.filter((e) => e.muscle === m).length > 1) {
-        slots.push({ m, sets: setsFor(m, emphasis), second: true });
-      }
-    }
+    const slots: { m: Muscle; sets: number; second: boolean }[] = trainable.map((m) => ({ m, sets: setsFor(m, emphasis), second: false }));
     const minutes = () => slots.reduce((a, x) => a + exerciseMinutes(x.sets), 0);
+    // Fill the session: weak points, then big muscles, get a second movement while time allows.
+    const order = [...emphasis.weak, ...SECOND_PRIORITY.filter((m) => !emphasis.weak.includes(m))];
+    for (const m of order) {
+      if (!trainable.includes(m) || emphasis.strong.includes(m) || slots.length >= MAX_EXERCISES) continue;
+      if (pool.filter((e) => e.muscle === m).length < 2) continue;
+      const sets = setsFor(m, emphasis);
+      if (minutes() + exerciseMinutes(sets) > profile.sessionMinutes) continue;
+      slots.splice(slots.findIndex((x) => x.m === m) + 1, 0, { m, sets, second: true });
+    }
     // Fit the session length: drop second exercises first, then take a set from regular muscles
     // (smallest muscles first), then from weak points. Strong points are already at 1 set.
     for (let i = slots.length - 1; i >= 0 && minutes() > profile.sessionMinutes; i--) {

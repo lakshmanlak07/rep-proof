@@ -4,10 +4,10 @@ import { View } from 'react-native';
 import { recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
 import type { Effort, Experience, Goal, Muscle, Pattern, Setup, SplitId, Unit } from '@/engine/types.ts';
 import { ok, saveProgram, toProfile, track, useData, type ProfileRow } from '@/lib/data';
-import { clearPending, getPending } from '@/lib/pending';
+import { clearPending, DISCLAIMER, getPending, isAdult, setPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
 import { AVOID_OPTIONS, EFFORT_OPTIONS, EXPERIENCE_OPTIONS, GOAL_OPTIONS, MINUTE_OPTIONS, MUSCLE_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
-import { Button, C, Choice, Field, Screen, T } from '@/ui';
+import { Button, C, Card, Choice, Field, Screen, T } from '@/ui';
 
 const STEPS = ['experience', 'setup', 'goal', 'days', 'minutes', 'body', 'height', 'sex', 'avoid', 'weak', 'strong', 'effort', 'split'] as const;
 
@@ -32,6 +32,7 @@ export default function Onboarding() {
   const [split, setSplit] = useState<SplitId | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [, rerender] = useState(0); // age check writes device storage; re-read it after
 
   const pending = getPending();
   const heightCm = unit === 'kg' ? Number(cm) : Math.round((Number(ft) * 12 + Number(inch || 0)) * 2.54);
@@ -63,15 +64,8 @@ export default function Onboarding() {
     }
   }
 
-  if (!pending?.disclaimerAt) {
-    return (
-      <Screen>
-        <T size="lg">Confirm your age first</T>
-        <T muted>We need your birth year and disclaimer confirmation on this device before building your plan.</T>
-        <Button kind="primary" title="Continue" onPress={() => supabase.auth.signOut()} />
-      </Screen>
-    );
-  }
+  // Signed in without the pre-sign-up age check (returning user on a new phone, or phone sign-up): do it here.
+  if (!pending?.disclaimerAt) return <AgeCheck onDone={() => rerender((x) => x + 1)} />;
 
   const back = step > 0 ? <Button kind="ghost" title="Back" onPress={() => setStep(step - 1)} /> : null;
   const progress = <T muted size="sm">Step {step + 1} of {STEPS.length}</T>;
@@ -164,6 +158,36 @@ export default function Onboarding() {
       </>)}
       <View style={{ flex: 1 }} />
       {back}
+    </Screen>
+  );
+}
+
+function AgeCheck({ onDone }: { onDone: () => void }) {
+  const [year, setYear] = useState('');
+  const [busy, setBusy] = useState(false);
+  const y = Number(year);
+  const valid = year.length === 4 && y > 1900 && y <= new Date().getFullYear();
+
+  async function confirm() {
+    if (!isAdult(y)) {
+      // Under 18: remove the account that was just created; nothing else was stored.
+      setBusy(true);
+      await supabase.rpc('delete_account');
+      clearPending();
+      await supabase.auth.signOut({ scope: 'local' });
+      return;
+    }
+    setPending({ birthYear: y, disclaimerAt: new Date().toISOString() });
+    onDone();
+  }
+
+  return (
+    <Screen>
+      <T size="lg">Before we build your plan</T>
+      <Field label="What year were you born?" keyboardType="number-pad" maxLength={4} placeholder="e.g. 1998" value={year} onChangeText={setYear} />
+      <T muted size="sm">RepProof is for adults 18 and over.</T>
+      <Card><T>{DISCLAIMER}</T></Card>
+      <Button kind="primary" title="I understand, continue" loading={busy} disabled={!valid} onPress={confirm} />
     </Screen>
   );
 }

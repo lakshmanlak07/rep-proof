@@ -15,7 +15,7 @@ export default function Welcome() {
         <T bold style={{ color: C.accent }}>{MOTTO}</T>
       </View>
       <Button kind="primary" title="Get started" onPress={() => router.push('/age')} />
-      <Button kind="ghost" title="I already have an account" onPress={() => router.push({ pathname: '/age', params: { mode: 'signin' } })} />
+      <Button kind="ghost" title="I already have an account" onPress={() => router.push({ pathname: '/sign-in', params: { mode: 'signin' } })} />
     </Screen>
   );
 }

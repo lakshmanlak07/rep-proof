@@ -280,7 +280,7 @@ test('home stats: week dots, streak, new bests', async () => {
 });
 
 test('plans record the engine version that built them', () => {
-  assert.equal(buildProgram(base).version, 3);
+  assert.equal(buildProgram(base).version, 4);
 });
 
 test('effort styles set per-set reps-in-reserve targets', async () => {
