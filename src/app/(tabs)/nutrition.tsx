@@ -52,7 +52,7 @@ export default function Nutrition() {
         <T size="sm">{Math.round(have)} / {goal} {unit}</T>
       </View>
       <View style={{ height: 8, borderRadius: 4, backgroundColor: C.border, overflow: 'hidden' }}>
-        <View style={{ width: `${Math.min(100, (100 * have) / Math.max(1, goal))}%`, height: 8, backgroundColor: have > goal * 1.05 ? '#7DB7FF' : C.accent }} />
+        <View style={{ width: `${Math.min(100, (100 * have) / Math.max(1, goal))}%`, height: 8, backgroundColor: have > goal * 1.05 ? C.warn : C.accent }} />
       </View>
     </View>
   );

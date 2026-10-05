@@ -1,7 +1,8 @@
 import 'expo-sqlite/localStorage/install';
 
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { Pressable, ScrollView, View } from 'react-native';
 
 import { available, EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
 import { applySetChange, decide, programAdvice, type Decision } from '@/engine/decisions.ts';
@@ -13,9 +14,9 @@ import { saveCoachNotes } from '@/lib/coach';
 import {
   bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updatePlan, updateProfile, useData, type DraftSet,
 } from '@/lib/data';
-import { Button, C, Card, Choice, Loading, s, Screen, T } from '@/ui';
+import { Button, C, Card, Chip, Choice, IconButton, IconTile, Loading, Press, ProgressBar, Reveal, s, Screen, Section, Sheet, Stepper, T } from '@/ui';
 import { alert, attempt } from '@/lib/alert';
-import { Why } from '@/why';
+import { Badge, Why } from '@/why';
 import { leave } from '@/lib/nav';
 
 type Row = { weight: string; reps: string; rir: string; done: boolean };
@@ -55,6 +56,15 @@ const REST = { compound: 150, isolation: 90 }; // seconds; PRD defaults
 // Outside components: clock reads happen in event handlers and intervals, never during render.
 const restUntil = (compound: boolean) => Date.now() + 1000 * (compound ? REST.compound : REST.isolation);
 const clock = () => Date.now();
+/** One calm line after each set; never gamified. */
+function feedbackFor(rir: string, target: number, reps: string, repMax: number) {
+  const r = rir === '' ? null : Number(rir);
+  if (r === null) return 'Logged.';
+  const base = r === 0 ? 'Great. That was to failure.' : `Great. That was approximately ${r} RIR.`;
+  if (Number(reps) >= repMax && r <= target) return `${base} Top of the range.`;
+  if (r > target + 1) return `${base} You had more in the tank, so feel free to push harder next set.`;
+  return base;
+}
 
 export default function Workout() {
   const { session, profile, program, refresh } = useData();
@@ -74,6 +84,9 @@ export default function Workout() {
   const [missed, setMissed] = useState(false);
   const [skip, setSkip] = useState(() => localStorage.getItem(MISSED_KEY) === 'skip');
   const [stretched, setStretched] = useState<string[]>([]);
+  const [cur, setCur] = useState(0); // exercise on screen
+  const [fb, setFb] = useState<string | null>(null); // feedback after logging a set
+  const [cues, setCues] = useState(false);
 
   useEffect(() => {
     if (draft || !program) return;
@@ -137,7 +150,10 @@ export default function Workout() {
         return r;
       }),
     }));
-    if (!it.sets[j].done) setRestEnd(restUntil(EXERCISE_BY_ID[it.exerciseId].compound));
+    if (!it.sets[j].done) {
+      setRestEnd(restUntil(EXERCISE_BY_ID[it.exerciseId].compound));
+      setFb(feedbackFor(it.sets[j].rir, it.planned.rirTarget, it.sets[j].reps, it.planned.repMax));
+    } else setFb(null);
   }
 
   const move = (i: number, by: -1 | 1) => setDraft((d) => {
@@ -298,76 +314,99 @@ export default function Workout() {
   }
 
   if (summary) {
+    const cleared = (k: Decision['kind']) => k === 'progressing' || k === 'too_new';
     return (
       <Screen>
-        <T size="xl">Done</T>
-        <Card>
-          <T size="lg">{summary.sets} sets logged</T>
-          {summary.prs.length ? <T bold style={{ color: C.accent }}>New best: {summary.prs.join(', ')}</T> : null}
-        </Card>
-        <T bold>What changes next time</T>
-        {summary.deload ? <T muted size="sm">Deload week: sets and exercises stay as planned; decisions resume after it.</T> : null}
-        {summary.next.map((n) => (
-          <Card key={n.exerciseId}>
-            <T bold>{n.name}</T>
-            <T muted>{n.text}</T>
-            {n.decision && !summary.deload ? (<>
-              <View style={[s.row, { justifyContent: 'space-between' }]}>
-                <T bold style={{ flex: 1, color: n.decision.kind === 'progressing' || n.decision.kind === 'too_new' ? C.muted : C.accent }}>{n.decision.title}</T>
-                <Why e={n.decision.explanation} changed={n.decision.kind !== 'progressing' && n.decision.kind !== 'too_new'} />
-              </View>
-              {n.decision.kind === 'swap' && n.decision.swapTo && !swapped.includes(n.exerciseId) ? (
-                <Button title={`Swap in plan: ${EXERCISE_BY_ID[n.decision.swapTo].name}`} onPress={() => swapPlanned(n.exerciseId, n.decision!.swapTo!)} />
-              ) : null}
-              {swapped.includes(n.exerciseId) ? <T muted size="sm">Swapped in your plan.</T> : null}
-            </>) : null}
-          </Card>
-        ))}
-        {summary.advice ? (
-          <Card style={{ borderColor: C.accent }}>
-            <View style={[s.row, { justifyContent: 'space-between' }]}>
-              <T bold style={{ flex: 1 }}>Should you change your program?</T>
-              <Why e={summary.advice} changed />
+        <Reveal>
+          <View style={{ alignItems: 'center', gap: 12, paddingVertical: 24 }}>
+            <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="checkmark" size={46} color="#fff" />
             </View>
-            <T muted>{summary.advice.text}</T>
+            <T size="xl">Workout complete</T>
+            <T muted>{summary.sets} working sets logged</T>
+          </View>
+        </Reveal>
+        {summary.prs.length ? (
+          <Card flat style={{ backgroundColor: C.posSoft, borderColor: 'transparent' }}>
+            <View style={s.row}><Ionicons name="trophy" size={20} color={C.pos} /><T bold color={C.pos}>New personal best</T></View>
+            {summary.prs.map((p) => <T key={p} bold>{p}</T>)}
           </Card>
         ) : null}
-        {summary.cooldown.length ? (<>
-          <T bold>Cooldown (optional)</T>
-          {summary.cooldown.map((c) => {
-            const on = stretched.includes(c);
-            return (
-              <Pressable key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }}
-                onPress={() => setStretched(on ? stretched.filter((x) => x !== c) : [...stretched, c])}>
-                <Card style={[s.row, on && { borderColor: C.accent }]}><T>{on ? '☑' : '☐'}</T><T style={{ flex: 1 }}>{c}</T></Card>
-              </Pressable>
-            );
-          })}
-        </>) : null}
+        <Section title="What changes next time">
+          {summary.deload ? <T muted size="sm">Deload week: sets and exercises stay as planned; decisions resume after it.</T> : null}
+          {summary.next.map((n) => (
+            <Card key={n.exerciseId}>
+              <T bold>{n.name}</T>
+              <T muted>{n.text}</T>
+              {n.decision && !summary.deload ? (<>
+                <View style={[s.row, { justifyContent: 'space-between' }]}>
+                  <T bold style={{ flex: 1 }} color={cleared(n.decision.kind) ? C.muted : C.accent}>{n.decision.title}</T>
+                  <Why e={n.decision.explanation} changed={!cleared(n.decision.kind)} />
+                </View>
+                {n.decision.kind === 'swap' && n.decision.swapTo && !swapped.includes(n.exerciseId) ? (
+                  <Button title={`Swap in plan: ${EXERCISE_BY_ID[n.decision.swapTo].name}`} onPress={() => swapPlanned(n.exerciseId, n.decision!.swapTo!)} />
+                ) : null}
+                {swapped.includes(n.exerciseId) ? <T muted size="sm">Swapped in your plan.</T> : null}
+              </>) : null}
+            </Card>
+          ))}
+        </Section>
+        {summary.advice ? (
+          <Card flat style={{ backgroundColor: C.accentSoft, borderColor: 'transparent' }}>
+            <View style={[s.row, { justifyContent: 'space-between' }]}>
+              <T bold style={{ flex: 1 }} color={C.accent}>Should you change your program?</T>
+              <Why e={summary.advice} changed />
+            </View>
+            <T>{summary.advice.text}</T>
+          </Card>
+        ) : null}
+        {summary.cooldown.length ? (
+          <Section title="Cooldown (optional)">
+            {summary.cooldown.map((c) => {
+              const on = stretched.includes(c);
+              return (
+                <Press key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }}
+                  onPress={() => setStretched(on ? stretched.filter((x) => x !== c) : [...stretched, c])}
+                  style={[s.choice, on && { borderColor: C.accent, backgroundColor: C.accentSoft }]}>
+                  <Ionicons name={on ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={on ? C.accent : C.faint} />
+                  <T style={{ flex: 1 }}>{c}</T>
+                </Press>
+              );
+            })}
+          </Section>
+        ) : null}
         <Button kind="primary" title="Done" onPress={async () => { await refresh(); leave(); }} />
       </Screen>
     );
   }
 
   if (!draft) {
-    const scale = (k: keyof CheckIn, title: string, low: string, high: string) => (
-      <View style={{ gap: 8 }}>
-        <T bold>{title}</T>
+    const scale = (k: keyof CheckIn, title: string, low: string, high: string, icon: keyof typeof Ionicons.glyphMap) => (
+      <Card>
+        <View style={s.row}><IconTile name={icon} tone="neutral" size={34} /><T bold>{title}</T></View>
         <View style={s.row}>
           {[1, 2, 3, 4, 5].map((v) => (
-            <Pressable key={v} accessibilityRole="button" accessibilityState={{ selected: checkin[k] === v }} onPress={() => setCheckin({ ...checkin, [k]: v })}
-              style={{ flex: 1, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1,
-                borderColor: checkin[k] === v ? C.accent : C.border, backgroundColor: C.card }}>
-              <T bold>{v}</T>
-            </Pressable>
+            <Press key={v} accessibilityState={{ selected: checkin[k] === v }} onPress={() => setCheckin({ ...checkin, [k]: v })} scaleTo={0.92}
+              style={{ flex: 1, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+                backgroundColor: checkin[k] === v ? C.accent : C.sunken }}>
+              <T bold color={checkin[k] === v ? '#fff' : C.text}>{v}</T>
+            </Press>
           ))}
         </View>
         <View style={[s.row, { justifyContent: 'space-between' }]}><T muted size="sm">{low}</T><T muted size="sm">{high}</T></View>
-      </View>
+      </Card>
     );
     return (
       <Screen>
-        <T size="lg">{day.name}{deload ? ' · deload' : ''}</T>
+        <View style={[s.row, { justifyContent: 'space-between' }]}>
+          <IconButton icon="close" label="Back" onPress={() => leave()} />
+          {deload ? <Chip tone="accent" label="Deload week" /> : null}
+        </View>
+        <View style={{ gap: 6 }}>
+          <T size="micro">Before you start</T>
+          <T size="xl">{day.name}</T>
+          <T muted>A ten-second check-in. If you are run down, Rep Proof adjusts today for you.</T>
+        </View>
         {missed ? (
           <Card>
             <T bold>You missed a session</T>
@@ -377,129 +416,214 @@ export default function Workout() {
             ]} />
           </Card>
         ) : null}
-        <T muted>Quick check-in. It takes ten seconds and adjusts today if you are run down.</T>
-        {scale('sleep', 'Sleep last night', '1 terrible', '5 great')}
-        {scale('soreness', 'Soreness', '1 very sore', '5 not sore')}
-        {scale('energy', 'Energy', '1 drained', '5 great')}
+        {scale('sleep', 'Sleep last night', '1 terrible', '5 great', 'moon')}
+        {scale('soreness', 'Soreness', '1 very sore', '5 not sore', 'body')}
+        {scale('energy', 'Energy', '1 drained', '5 great', 'flash')}
         <View style={{ flex: 1 }} />
-        <Button kind="primary" title="Start" loading={busy} onPress={() => start(checkin)} />
+        <Button kind="primary" title="Start workout" icon="play" loading={busy} onPress={() => start(checkin)} />
         <Button kind="ghost" title="Skip check-in" disabled={busy} onPress={() => start(null)} />
-        <Button kind="ghost" title="Back" onPress={() => leave()} />
       </Screen>
     );
   }
 
+  // ───────── Active workout: one exercise at a time ─────────
+  const i = Math.min(cur, draft.items.length - 1);
+  const it = draft.items[i];
+  const ex = EXERCISE_BY_ID[it.exerciseId];
+  const total = draft.items.reduce((a, x) => a + x.sets.length, 0);
+  const logged = draft.items.reduce((a, x) => a + x.sets.filter((r) => r.done).length, 0);
+  const j = it.sets.findIndex((r) => !r.done); // current set; -1 = exercise complete
+  const setRow = j >= 0 ? it.sets[j] : null;
+  const step = unit === 'kg' ? 2.5 : 5;
+  const w = it.suggestion.weight;
+  const patch = (f: 'weight' | 'reps' | 'rir', v: string) => update(i, (x) => ({ ...x, sets: x.sets.map((y, k) => (k === j ? { ...y, [f]: v } : y)) }));
+  const doneSets: LoggedSet[] = it.sets.filter((r) => r.done).map((r) => ({ weight: Number(r.weight) || 0, reps: Number(r.reps) || 0, rir: r.rir === '' ? null : Number(r.rir) }));
+  const rec = j === -1 && doneSets.length ? applyPins(suggest(it.planned, [doneSets, ...it.history], profile.experience, unit), it.planned) : null;
+  const nextRow = j >= 0 && restEnd ? it.sets[j] : null;
+  const goto = (k: number) => { setCur(k); setFb(null); setRestEnd(null); setCues(false); };
+  const rirTarget = j >= 0 ? (j === it.sets.length - 1 ? it.planned.lastSetRir ?? it.planned.rirTarget : it.planned.rirTarget) : it.planned.rirTarget;
 
   return (
     <Screen>
       <View style={[s.row, { justifyContent: 'space-between' }]}>
-        <T size="lg">{day.name}</T>
-        <Button kind="ghost" title="Discard" onPress={quit} />
+        <IconButton icon="close" label="Discard workout" onPress={quit} />
+        <View style={{ flex: 1, gap: 6, paddingHorizontal: 6 }}>
+          <T size="micro" style={{ textAlign: 'center' }}>{day.name} · {logged} of {total} sets</T>
+          <ProgressBar value={logged} max={total} />
+        </View>
+        <IconButton icon="add" label="Add an exercise" onPress={() => setAdding(true)} />
       </View>
-      {restEnd ? <RestTimer end={restEnd} onDone={() => setRestEnd(null)} /> : null}
 
-      {draft.items.map((it, i) => {
-        const ex = EXERCISE_BY_ID[it.exerciseId];
-        const w = it.suggestion.weight;
-        return (
-          <Card key={`${i}-${it.exerciseId}`}>
-            <View style={[s.row, { justifyContent: 'space-between' }]}>
-              <T size="lg" style={{ flex: 1 }}>{ex.name}</T>
-              <Pressable accessibilityRole="button" accessibilityLabel="Move up" hitSlop={8} disabled={i === 0} onPress={() => move(i, -1)}>
-                <T muted size="lg" style={{ opacity: i === 0 ? 0.3 : 1 }}>↑</T>
-              </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel="Move down" hitSlop={8} disabled={i === draft.items.length - 1} onPress={() => move(i, 1)}>
-                <T muted size="lg" style={{ opacity: i === draft.items.length - 1 ? 0.3 : 1 }}>↓</T>
-              </Pressable>
-              <Why e={it.suggestion.explanation} changed={it.changed} />
-            </View>
-            <T muted>
-              {w === null ? 'Calibrate: pick your starting weight' : `${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`} · {effortLabel(it.planned)}
-            </T>
-            <View style={s.row}>
-              <T muted size="sm" style={{ flex: 1 }}>
-                {w === null ? 'Warm-up: 1 light set of 5 before your first working set' : `Warm-up: 1 × ${warmup(w, unit, ex.equipment.includes('barbell')).reps} at ${warmup(w, unit, ex.equipment.includes('barbell')).weight} ${unit}`}
-              </T>
-              <Why e={WARMUP_WHY} />
-            </View>
-            {ex.cues.map((c) => <T key={c} muted size="sm">• {c}</T>)}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        {draft.items.map((x, k) => {
+          const all = x.sets.every((r) => r.done);
+          const on = k === i;
+          return (
+            <Pressable key={`${k}-${x.exerciseId}`} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => goto(k)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: on ? C.ink : C.card, borderWidth: 1, borderColor: on ? C.ink : C.border }}>
+              {all ? <Ionicons name="checkmark-circle" size={14} color={on ? '#fff' : C.pos} /> : null}
+              <T size="sm" bold color={on ? '#fff' : C.text}>{k + 1}. {EXERCISE_BY_ID[x.exerciseId].name.split(' ').slice(0, 2).join(' ')}</T>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
-            <View style={[s.row, { marginTop: 4 }]}>
-              <T muted size="sm" style={{ width: 28 }}>Set</T>
-              <T muted size="sm" style={{ flex: 1 }}>{unit}</T>
-              <T muted size="sm" style={{ flex: 1 }}>Reps</T>
-              <T muted size="sm" style={{ flex: 1 }}>RIR</T>
-              <View style={{ width: 52 }} />
+      <Reveal key={`${i}-${it.exerciseId}`}>
+        <View style={{ gap: 10 }}>
+          <View style={[s.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <T size="micro">{ex.muscle} · {ex.compound ? 'compound' : 'isolation'}</T>
+              <T size="xl">{ex.name}</T>
             </View>
-            {it.sets.map((r, j) => (
-              <View key={j} style={s.row}>
-                <T bold style={{ width: 28 }}>{j + 1}</T>
-                {(['weight', 'reps', 'rir'] as const).map((f) => (
-                  <TextInput key={f} value={r[f]} editable={!r.done} keyboardType={f === 'weight' ? 'decimal-pad' : 'number-pad'}
-                    placeholder={f === 'weight' ? '?' : ''} placeholderTextColor={C.muted} selectTextOnFocus
-                    onChangeText={(v) => update(i, (x) => ({ ...x, sets: x.sets.map((y, k) => (k === j ? { ...y, [f]: v } : y)) }))}
-                    style={{ flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, color: r.done ? C.muted : C.text, fontSize: 18, textAlign: 'center' }} />
-                ))}
-                <Pressable accessibilityRole="button" accessibilityLabel={r.done ? 'Undo set' : 'Log set'} disabled={!r.done && (!r.weight || !r.reps)}
-                  onPress={() => logSet(i, j)}
-                  style={{ width: 52, height: 48, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: r.done ? C.accent : C.card, borderWidth: 1, borderColor: r.done ? C.accent : C.border, opacity: !r.done && (!r.weight || !r.reps) ? 0.4 : 1 }}>
-                  <T bold style={{ color: r.done ? C.onAccent : C.text }}>{r.done ? '✓' : 'Log'}</T>
-                </Pressable>
+            <Why e={it.suggestion.explanation} changed={it.changed} />
+          </View>
+          <T muted>
+            {w === null ? 'Calibrate: pick your starting weight' : `Target ${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`}
+          </T>
+          <T muted size="sm">{effortLabel(it.planned)}</T>
+        </View>
+      </Reveal>
+
+      {/* Completed sets */}
+      {it.sets.some((r) => r.done) ? (
+        <Card flat style={{ gap: 0, paddingVertical: 6 }}>
+          {it.sets.map((r, k) => r.done ? (
+            <Pressable key={k} accessibilityRole="button" accessibilityLabel={`Undo set ${k + 1}`} onPress={() => logSet(i, k)}
+              style={[s.row, { minHeight: 46, justifyContent: 'space-between' }]}>
+              <View style={s.row}>
+                <Ionicons name="checkmark-circle" size={20} color={C.pos} />
+                <T bold>Set {k + 1}</T>
               </View>
-            ))}
-            <View style={s.row}>
-              <Button title="Swap" style={{ flex: 1 }} onPress={() => setSwapFor(i)} />
-              <Button title="Pain" kind="danger" style={{ flex: 1 }} onPress={() => pain(i)} />
+              <T bold>{r.weight} {unit} × {r.reps}</T>
+              <T muted size="sm">{r.rir === '' ? '' : `${r.rir} RIR`}</T>
+            </Pressable>
+          ) : null)}
+        </Card>
+      ) : null}
+
+      {/* Rest timer */}
+      {restEnd ? <RestPanel end={restEnd} onDone={() => setRestEnd(null)} next={nextRow ? `${nextRow.weight} ${unit} × ${it.suggestion.reps}–${it.planned.repMax}` : null} rir={rirTarget} /> : null}
+
+      {/* Active set */}
+      {setRow ? (
+        <Card style={{ gap: 18 }}>
+          <View style={[s.row, { justifyContent: 'space-between' }]}>
+            <T size="micro" color={C.accent}>Set {j + 1} of {it.sets.length}</T>
+            <T muted size="sm">Target {rirTarget} RIR</T>
+          </View>
+          <View style={{ gap: 4 }}>
+            <Stepper big value={setRow.weight} onChange={(v) => patch('weight', v)} step={step} unit={unit} />
+          </View>
+          <View style={{ height: 1, backgroundColor: C.border }} />
+          <View style={{ gap: 8 }}>
+            <T size="micro">Reps</T>
+            <Stepper value={setRow.reps} onChange={(v) => patch('reps', v)} step={1} min={1} />
+          </View>
+          <View style={{ gap: 8 }}>
+            <View style={[s.row, { justifyContent: 'space-between' }]}>
+              <T size="micro">Reps in reserve (RIR)</T>
+              <T muted size="sm">How many more could you do?</T>
             </View>
-          </Card>
-        );
-      })}
-
-      <Button title="Add an exercise" onPress={() => setAdding(true)} />
-      <Button kind="primary" title="Finish workout" loading={busy} onPress={confirmFinish} />
-
-      <Modal visible={adding} transparent animationType="slide" onRequestClose={() => setAdding(false)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setAdding(false)} />
-        {adding ? (
-          <Card style={{ borderRadius: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40, maxHeight: '75%' }}>
-            <T size="lg">Add an exercise</T>
-            <T muted size="sm">Logged and tracked like the rest of your plan.</T>
-            <ScrollView>
-              {MUSCLES.map((m) => {
-                const options = available(profile.setup, profile.avoid).filter((e) => e.muscle === m && !draft.items.some((it) => it.exerciseId === e.id));
-                if (!options.length) return null;
+            <View style={s.row}>
+              {['0', '1', '2', '3', '4'].map((v) => {
+                const on = setRow.rir === v;
                 return (
-                  <View key={m} style={{ gap: 6, marginBottom: 10 }}>
-                    <T bold>{MUSCLE_NAMES[m]}</T>
-                    {options.map((e) => <Button key={e.id} title={e.name} onPress={() => addExercise(e.id)} />)}
-                  </View>
+                  <Press key={v} accessibilityState={{ selected: on }} onPress={() => patch('rir', v)} scaleTo={0.92}
+                    style={{ flex: 1, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.accent : C.sunken }}>
+                    <T bold color={on ? '#fff' : C.text}>{v === '4' ? '4+' : v}</T>
+                  </Press>
                 );
               })}
-            </ScrollView>
-            <Button kind="ghost" title="Cancel" onPress={() => setAdding(false)} />
-          </Card>
-        ) : null}
-      </Modal>
+            </View>
+          </View>
+          {fb ? <T size="sm" bold color={C.pos}>{fb}</T> : null}
+          <Button kind="primary" title={`Log set ${j + 1}`} icon="checkmark" disabled={!setRow.weight || !setRow.reps} onPress={() => logSet(i, j)} />
+          {w === null && j === 0 ? <T muted size="sm">First time: warm up with 1 light set of 5, then pick a weight that leaves you the target reps in reserve.</T> : null}
+        </Card>
+      ) : null}
 
-      <Modal visible={swapFor !== null} transparent animationType="slide" onRequestClose={() => setSwapFor(null)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setSwapFor(null)} />
-        {swapFor !== null ? (
-          <Card style={{ borderRadius: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 }}>
-            <T size="lg">Swap for</T>
-            {substitutes(draft.items[swapFor].exerciseId, profile.setup, profile.avoid).map((e) => (
-              <Button key={e.id} title={e.name} onPress={() => swap(swapFor, e.id)} />
-            ))}
-            {!substitutes(draft.items[swapFor].exerciseId, profile.setup, profile.avoid).length ? <T muted>No alternatives with your equipment.</T> : null}
-            <Button kind="ghost" title="Cancel" onPress={() => setSwapFor(null)} />
+      {/* After the last set: the recommendation */}
+      {rec ? (
+        <Reveal>
+          <Card flat style={{ backgroundColor: C.accentSoft, borderColor: 'transparent' }}>
+            <View style={[s.row, { justifyContent: 'space-between' }]}>
+              <T size="micro" color={C.accent}>Rep Proof recommendation</T>
+              <Badge label={rec.explanation.label} />
+            </View>
+            {fb ? <T bold color={C.pos}>{fb}</T> : null}
+            <T size="lg">
+              {rec.kind === 'up' && rec.weight !== null ? `Increase to ${rec.weight} ${unit} next session.`
+                : rec.kind === 'reps' && rec.weight !== null ? `Stay at ${rec.weight} ${unit} and aim for ${rec.reps} reps.`
+                : rec.kind === 'drop' && rec.weight !== null ? `Drop to ${rec.weight} ${unit} next session.`
+                : 'Keep the same weight next session.'}
+            </T>
+            <T muted>{rec.explanation.text}</T>
           </Card>
+        </Reveal>
+      ) : null}
+
+      {/* Warm-up, cues, tools */}
+      <Card flat>
+        <View style={[s.row, { justifyContent: 'space-between' }]}>
+          <T muted size="sm" style={{ flex: 1 }}>
+            {w === null ? 'Warm-up: 1 light set of 5 first' : `Warm-up: 1 × ${warmup(w, unit, ex.equipment.includes('barbell')).reps} at ${warmup(w, unit, ex.equipment.includes('barbell')).weight} ${unit}`}
+          </T>
+          <Why e={WARMUP_WHY} />
+        </View>
+        <Pressable accessibilityRole="button" onPress={() => setCues(!cues)} style={[s.row, { justifyContent: 'space-between' }]}>
+          <T bold size="sm">Key cues</T>
+          <Ionicons name={cues ? 'chevron-up' : 'chevron-down'} size={18} color={C.muted} />
+        </Pressable>
+        {cues ? ex.cues.map((c) => <T key={c} muted size="sm">• {c}</T>) : null}
+        <View style={s.row}>
+          <Button title="Swap" icon="swap-horizontal" style={{ flex: 1, minHeight: 44 }} onPress={() => setSwapFor(i)} />
+          <Button title="Pain" icon="warning" kind="danger" style={{ flex: 1, minHeight: 44 }} onPress={() => pain(i)} />
+          <IconButton icon="arrow-up" label="Move up" onPress={() => { move(i, -1); if (i > 0) setCur(i - 1); }} />
+          <IconButton icon="arrow-down" label="Move down" onPress={() => { move(i, 1); if (i < draft.items.length - 1) setCur(i + 1); }} />
+        </View>
+      </Card>
+
+      <View style={s.row}>
+        <Button title="Previous" icon="chevron-back" style={{ flex: 1 }} disabled={i === 0} onPress={() => goto(i - 1)} />
+        {i < draft.items.length - 1 ? (
+          <Button kind={j === -1 ? 'primary' : 'secondary'} title="Next exercise" style={{ flex: 1.4 }} onPress={() => goto(i + 1)} />
+        ) : (
+          <Button kind="primary" title="Finish workout" style={{ flex: 1.4 }} loading={busy} onPress={confirmFinish} />
+        )}
+      </View>
+      {i < draft.items.length - 1 ? <Button kind="ghost" title="Finish workout" loading={busy} onPress={confirmFinish} /> : null}
+
+      <Sheet visible={adding} onClose={() => setAdding(false)} title="Add an exercise">
+        <T muted size="sm">Logged and tracked like the rest of your plan.</T>
+        {adding ? (
+          <ScrollView style={{ maxHeight: 420 }}>
+            {MUSCLES.map((m) => {
+              const options = available(profile.setup, profile.avoid).filter((e) => e.muscle === m && !draft.items.some((x) => x.exerciseId === e.id));
+              if (!options.length) return null;
+              return (
+                <View key={m} style={{ gap: 6, marginBottom: 12 }}>
+                  <T size="micro">{MUSCLE_NAMES[m]}</T>
+                  {options.map((e) => <Button key={e.id} title={e.name} onPress={() => addExercise(e.id)} />)}
+                </View>
+              );
+            })}
+          </ScrollView>
         ) : null}
-      </Modal>
+        <Button kind="ghost" title="Cancel" onPress={() => setAdding(false)} />
+      </Sheet>
+
+      <Sheet visible={swapFor !== null} onClose={() => setSwapFor(null)} title="Swap for">
+        {swapFor !== null ? substitutes(draft.items[swapFor].exerciseId, profile.setup, profile.avoid).map((e) => (
+          <Button key={e.id} title={e.name} onPress={() => swap(swapFor, e.id)} />
+        )) : null}
+        {swapFor !== null && !substitutes(draft.items[swapFor].exerciseId, profile.setup, profile.avoid).length ? <T muted>No alternatives with your equipment.</T> : null}
+        <Button kind="ghost" title="Cancel" onPress={() => setSwapFor(null)} />
+      </Sheet>
     </Screen>
   );
 }
 
-function RestTimer({ end, onDone }: { end: number; onDone: () => void }) {
+function RestPanel({ end, onDone, next, rir }: { end: number; onDone: () => void; next: string | null; rir: number }) {
   const [now, setNow] = useState(clock);
   useEffect(() => {
     const t = setInterval(() => setNow(clock()), 500);
@@ -507,12 +631,20 @@ function RestTimer({ end, onDone }: { end: number; onDone: () => void }) {
   }, []);
   const left = Math.max(0, Math.ceil((end - now) / 1000));
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel="Dismiss rest timer" onPress={onDone}>
-      <Card style={{ borderColor: left ? C.border : C.accent, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <T bold style={{ flex: 1 }}>{left ? 'Rest' : 'Rest done. Next set'}</T>
-        <T size="lg">{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</T>
-        <View style={{ marginLeft: 12 }}><Why e={REST_WHY} /></View>
-      </Card>
-    </Pressable>
+    <Card style={{ alignItems: 'center', gap: 10, borderColor: left ? C.border : C.accent }}>
+      <View style={[s.row, { alignSelf: 'stretch', justifyContent: 'space-between' }]}>
+        <T size="micro">{left ? 'Rest timer' : 'Rest done'}</T>
+        <Why e={REST_WHY} />
+      </View>
+      <T size="display" color={left ? C.text : C.accent}>{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</T>
+      {next ? (
+        <View style={{ alignItems: 'center', gap: 2 }}>
+          <T size="micro">Next set</T>
+          <T bold>{next}</T>
+          <T muted size="sm">Target {rir === 0 ? 'failure' : `${rir}${rir < 4 ? '–' + (rir + 1) : '+'} RIR`}</T>
+        </View>
+      ) : null}
+      <Button title={left ? 'Skip rest' : 'Start next set'} kind={left ? 'secondary' : 'primary'} onPress={onDone} style={{ alignSelf: 'stretch' }} />
+    </Card>
   );
 }

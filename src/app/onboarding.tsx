@@ -7,7 +7,7 @@ import { ok, saveProgram, toProfile, track, useData, type ProfileRow } from '@/l
 import { clearPending, DISCLAIMER, getPending, isAdult, setPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
 import { AVOID_OPTIONS, EFFORT_OPTIONS, EXPERIENCE_OPTIONS, GOAL_OPTIONS, MINUTE_OPTIONS, MUSCLE_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
-import { Button, C, Card, Choice, Field, Screen, T } from '@/ui';
+import { Button, C, Card, Choice, Field, IconButton, IconTile, ProgressBar, Reveal, Screen, T } from '@/ui';
 
 const STEPS = ['experience', 'setup', 'goal', 'days', 'minutes', 'body', 'height', 'sex', 'avoid', 'weak', 'strong', 'effort', 'split'] as const;
 
@@ -32,6 +32,7 @@ export default function Onboarding() {
   const [split, setSplit] = useState<SplitId | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [built, setBuilt] = useState(false);
   const [, rerender] = useState(0); // age check writes device storage; re-read it after
 
   const pending = getPending();
@@ -57,7 +58,8 @@ export default function Onboarding() {
       await supabase.from('bodyweight_logs').upsert({ weight: row.bodyweight }, { onConflict: 'user_id,logged_on' });
       clearPending();
       track('onboarding_done', { experience, setup, goal, days, split: chosen });
-      await refresh();
+      setBusy(false);
+      setBuilt(true); // the plan reveal screen calls refresh() to enter the app
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Try again.');
       setBusy(false);
@@ -67,42 +69,69 @@ export default function Onboarding() {
   // Signed in without the pre-sign-up age check (returning user on a new phone, or phone sign-up): do it here.
   if (!pending?.disclaimerAt) return <AgeCheck onDone={() => rerender((x) => x + 1)} />;
 
-  const back = step > 0 ? <Button kind="ghost" title="Back" onPress={() => setStep(step - 1)} /> : null;
-  const progress = <T muted size="sm">Step {step + 1} of {STEPS.length}</T>;
+  if (built) {
+    return (
+      <Screen scroll={false}>
+        <View style={{ flex: 1, justifyContent: 'center', gap: 20 }}>
+          <Reveal>
+            <View style={{ gap: 14 }}>
+              <IconTile name="sparkles" size={56} />
+              <T size="micro">Your Rep Proof plan</T>
+              <T size="xl">Your starting plan is ready.</T>
+              <T muted>Based on your goals, availability and training experience, we&apos;ve built your starting plan. It adapts as you log sessions, and every change comes with the reason.</T>
+            </View>
+          </Reveal>
+          <Card>
+            <T bold>{split ? SPLIT_NAMES[split] : ''} · {days} days a week</T>
+            <T muted>{minutes} minute sessions · {setup === 'home' ? 'home gym' : 'full gym'} · {experience}</T>
+          </Card>
+        </View>
+        <Button kind="primary" title="View my plan" onPress={() => refresh()} />
+      </Screen>
+    );
+  }
 
+  const back = step > 0 ? <IconButton icon="chevron-back" label="Back" onPress={() => setStep(step - 1)} /> : <View style={{ width: 44 }} />;
+  const progress = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+      {back}
+      <View style={{ flex: 1 }}><ProgressBar value={step + 1} max={STEPS.length} height={6} /></View>
+      <T muted size="sm" style={{ width: 44, textAlign: 'right' }}>{step + 1}/{STEPS.length}</T>
+    </View>
+  );
   return (
     <Screen>
       {progress}
       {name === 'experience' && (<>
-        <T size="lg">How long have you been lifting consistently?</T>
+        <T size="xl">How long have you been lifting consistently?</T>
         <Choice value={experience} onChange={pick(setExperience)} options={EXPERIENCE_OPTIONS} />
       </>)}
       {name === 'setup' && (<>
-        <T size="lg">Where do you train?</T>
+        <T size="xl">Where do you train?</T>
         <Choice value={setup} onChange={pick(setSetup)} options={SETUP_OPTIONS} />
       </>)}
       {name === 'goal' && (<>
-        <T size="lg">What is your main goal?</T>
+        <T size="xl">What is your main goal?</T>
         <Choice value={goal} onChange={pick(setGoal)} options={GOAL_OPTIONS} />
       </>)}
       {name === 'days' && (<>
-        <T size="lg">How many days a week can you train?</T>
+        <T size="xl">How many days a week can you train?</T>
         <Choice value={days} onChange={pick((d: number) => { setDays(d); setSplit(recommendSplit(d)); })}
-          options={[2, 3, 4, 5, 6].map((d) => ({ value: d, label: `${d} days` }))} />
+          options={[2, 3, 4, 5, 6].map((d) => ({ value: d, label: `${d} days a week`, icon: 'calendar' as const, hint: ['Short on time', 'A balanced week', 'Room for more frequency', 'Serious commitment', 'Near-daily training'][d - 2] }))} />
       </>)}
       {name === 'minutes' && (<>
-        <T size="lg">How long is each session?</T>
-        <Choice value={minutes} onChange={pick(setMinutes)} options={MINUTE_OPTIONS} />
+        <T size="xl">How long is each session?</T>
+        <Choice value={minutes} onChange={pick(setMinutes)} options={MINUTE_OPTIONS.map((m) => ({ ...m, icon: 'time' as const }))} />
       </>)}
       {name === 'body' && (<>
-        <T size="lg">Your bodyweight</T>
+        <T size="xl">Your bodyweight</T>
         <Choice value={unit} onChange={setUnit} options={[{ value: 'kg', label: 'Kilograms (kg)' }, { value: 'lb', label: 'Pounds (lb)' }]} />
         <Field keyboardType="decimal-pad" placeholder={unit === 'kg' ? 'e.g. 75' : 'e.g. 165'} value={bodyweight} onChangeText={setBodyweight} />
         <T muted size="sm">Used for progress tracking and nutrition targets. Weights in the app use this unit.</T>
         <Button kind="primary" title="Continue" disabled={!(Number(bodyweight) > 20)} onPress={next} />
       </>)}
       {name === 'height' && (<>
-        <T size="lg">Your height</T>
+        <T size="xl">Your height</T>
         {unit === 'kg' ? (
           <Field keyboardType="number-pad" placeholder="cm, e.g. 178" value={cm} onChangeText={setCm} />
         ) : (
@@ -115,40 +144,40 @@ export default function Onboarding() {
         <Button kind="primary" title="Continue" disabled={!(heightCm >= 100 && heightCm <= 250)} onPress={next} />
       </>)}
       {name === 'sex' && (<>
-        <T size="lg">Sex (optional)</T>
+        <T size="xl">Sex (optional)</T>
         <T muted>Only used for starting-weight wording and nutrition formulas.</T>
         <Choice value={sex} onChange={pick(setSex)} options={[
           { value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }, { value: 'none', label: 'Prefer not to say' },
         ]} />
       </>)}
       {name === 'avoid' && (<>
-        <T size="lg">Any movements to leave out?</T>
+        <T size="xl">Any movements to leave out?</T>
         <T muted>Tick any you want out of your plan. You can change this later.</T>
         <Choice value={avoid} onChange={(p) => setAvoid(avoid.includes(p) ? avoid.filter((x) => x !== p) : [...avoid, p])}
           options={AVOID_OPTIONS} />
         <Button kind="primary" title={avoid.length ? 'Continue' : 'None, continue'} onPress={next} />
       </>)}
       {name === 'weak' && (<>
-        <T size="lg">Weak points to bring up?</T>
+        <T size="xl">Weak points to bring up?</T>
         <T muted>These get 3 hard sets per exercise. Everything else gets 2.</T>
         <Choice value={weak} onChange={(m) => { setWeak(weak.includes(m) ? weak.filter((x) => x !== m) : [...weak, m]); setStrong(strong.filter((x) => x !== m)); }}
           options={MUSCLE_OPTIONS} />
         <Button kind="primary" title={weak.length ? 'Continue' : 'None, continue'} onPress={next} />
       </>)}
       {name === 'strong' && (<>
-        <T size="lg">Strong points?</T>
+        <T size="xl">Strong points?</T>
         <T muted>These get 1 hard set per exercise, so your energy goes where you need it.</T>
         <Choice value={strong} onChange={(m) => setStrong(strong.includes(m) ? strong.filter((x) => x !== m) : [...strong, m])}
           options={MUSCLE_OPTIONS.filter((o) => !weak.includes(o.value))} />
         <Button kind="primary" title={strong.length ? 'Continue' : 'None, continue'} onPress={next} />
       </>)}
       {name === 'effort' && (<>
-        <T size="lg">How hard should sets go?</T>
+        <T size="xl">How hard should sets go?</T>
         <T muted>Getting close to failure matters; reaching it every set is optional. You can change this any time.</T>
         <Choice value={effort} onChange={pick(setEffort)} options={EFFORT_OPTIONS} />
       </>)}
       {name === 'split' && days && (<>
-        <T size="lg">Your split</T>
+        <T size="xl">Your split</T>
         <T muted>Recommended for {days} days a week. When weekly sets are equal, how often you train each muscle makes little difference, so pick what fits your week.</T>
         <Choice value={split} onChange={setSplit} options={(Object.keys(SPLIT_DAYS) as SplitId[])
           .filter((sp) => SPLIT_DAYS[sp].includes(days))
@@ -156,8 +185,6 @@ export default function Onboarding() {
         {error ? <T style={{ color: C.danger }}>{error}</T> : null}
         <Button kind="primary" title="Build my plan" loading={busy} disabled={!split} onPress={() => finish(split!)} />
       </>)}
-      <View style={{ flex: 1 }} />
-      {back}
     </Screen>
   );
 }
