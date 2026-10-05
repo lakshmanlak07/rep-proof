@@ -14,7 +14,8 @@ export type Muscle =
 export type Pattern =
   | 'horizontal_push' | 'vertical_push' | 'horizontal_pull' | 'vertical_pull'
   | 'squat' | 'lunge' | 'hinge' | 'hip_thrust' | 'knee_extension' | 'knee_flexion'
-  | 'fly' | 'lateral_raise' | 'elbow_flexion' | 'elbow_extension' | 'calf_raise';
+  | 'fly' | 'lateral_raise' | 'rear_delt' | 'pullover' | 'hip_abduction'
+  | 'elbow_flexion' | 'elbow_extension' | 'calf_raise';
 
 export type Equipment = 'barbell' | 'rack' | 'dumbbell' | 'bench' | 'machine' | 'cable';
 

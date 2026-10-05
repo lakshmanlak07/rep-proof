@@ -280,7 +280,7 @@ test('home stats: week dots, streak, new bests', async () => {
 });
 
 test('plans record the engine version that built them', () => {
-  assert.equal(buildProgram(base).version, 4);
+  assert.equal(buildProgram(base).version, 6);
 });
 
 test('effort styles set per-set reps-in-reserve targets', async () => {
@@ -343,4 +343,23 @@ test('decision engine answers the next-step questions', async () => {
   assert.equal(applySetChange({ ...plan, pinnedSets: 2 }, 1).sets, 2);
   assert.ok(programAdvice([add, add, swap, less]));
   assert.equal(programAdvice([add]), null);
+});
+
+test('exercise selection quality: compound mains, no repeated movement, every muscle weekly', () => {
+  for (const setup of ['commercial', 'home'] as const)
+    for (const days of [2, 3, 4, 5, 6])
+      for (const sessionMinutes of [30, 45, 60, 90]) {
+        const p = buildProgram({ ...base, setup, days, sessionMinutes });
+        // every muscle the equipment allows is trained at least once a week
+        for (const m of MUSCLES) if (setup === 'commercial') assert.ok(p.weeklySets[m], `${setup} ${days}d ${sessionMinutes}min: no ${m}`);
+        for (const d of p.days) {
+          const ex = d.exercises.map((e) => EXERCISE_BY_ID[e.exerciseId]);
+          for (const m of MUSCLES) {
+            const mine = ex.filter((e) => e.muscle === m);
+            if (m === 'biceps' || m === 'triceps') continue;
+            assert.equal(new Set(mine.map((e) => e.pattern)).size, mine.length, `${d.name}: repeated ${m} movement`);
+          }
+          if (d.name.startsWith('Pull')) assert.ok(ex.some((e) => e.pattern === 'rear_delt'), `${d.name}: no rear delts`);
+        }
+      }
 });

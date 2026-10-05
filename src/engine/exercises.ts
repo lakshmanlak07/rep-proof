@@ -17,6 +17,11 @@ export const EXERCISES: Exercise[] = [
   { id: 'db_fly', name: 'Dumbbell fly', muscle: 'chest', pattern: 'fly', equipment: ['dumbbell', 'bench'], compound: false, difficulty: 2,
     cues: ['Slight bend in the elbows', 'Lower until a stretch, not further', 'Hug a barrel on the way up'] },
 
+  { id: 'incline_bb_press', name: 'Incline barbell press', muscle: 'chest', pattern: 'horizontal_push', equipment: ['barbell', 'bench', 'rack'], compound: true, difficulty: 2,
+    cues: ['Bench at a low incline', 'Lower the bar to your upper chest', 'Shoulder blades pinched and down'] },
+  { id: 'pec_deck', name: 'Pec deck', muscle: 'chest', pattern: 'fly', equipment: ['machine'], compound: false, difficulty: 1,
+    cues: ['Handles level with mid chest', 'Open until you feel a deep stretch', 'Squeeze the handles together'] },
+
   // Back
   { id: 'lat_pulldown', name: 'Lat pulldown', muscle: 'back', pattern: 'vertical_pull', equipment: ['cable'], compound: true, difficulty: 1,
     cues: ['Grip a little wider than shoulders', 'Pull elbows down to your sides', 'Let the arms fully straighten at the top'] },
@@ -29,6 +34,13 @@ export const EXERCISES: Exercise[] = [
   { id: 'bb_row', name: 'Barbell row', muscle: 'back', pattern: 'horizontal_pull', equipment: ['barbell'], compound: true, difficulty: 3,
     cues: ['Hinge until torso is near 45 degrees', 'Back flat, brace hard', 'Pull bar to lower ribs'] },
 
+  { id: 'machine_row', name: 'Machine row', muscle: 'back', pattern: 'horizontal_pull', equipment: ['machine'], compound: true, difficulty: 1,
+    cues: ['Chest on the pad', 'Pull elbows back past your torso', 'Let the shoulders reach forward at the start'] },
+  { id: 'straight_arm_pulldown', name: 'Straight-arm pulldown', muscle: 'back', pattern: 'pullover', equipment: ['cable'], compound: false, difficulty: 1,
+    cues: ['Slight bend in the elbows, keep it fixed', 'Sweep the bar down to your thighs', 'Let the lats stretch overhead'] },
+  { id: 'db_pullover', name: 'Dumbbell pullover', muscle: 'back', pattern: 'pullover', equipment: ['dumbbell', 'bench'], compound: false, difficulty: 2,
+    cues: ['Upper back across the bench', 'Lower the dumbbell behind your head to a stretch', 'Pull it back over your chest with straight-ish arms'] },
+
   // Shoulders
   { id: 'db_shoulder_press', name: 'Seated dumbbell shoulder press', muscle: 'shoulders', pattern: 'vertical_push', equipment: ['dumbbell', 'bench'], compound: true, difficulty: 1,
     cues: ['Back against an upright bench', 'Lower to about chin height', 'Press straight up'] },
@@ -38,6 +50,15 @@ export const EXERCISES: Exercise[] = [
     cues: ['Slight bend in the elbows', 'Raise out to the side to shoulder height', 'Lower slowly'] },
   { id: 'cable_lateral_raise', name: 'Cable lateral raise', muscle: 'shoulders', pattern: 'lateral_raise', equipment: ['cable'], compound: false, difficulty: 1,
     cues: ['Cable at hand height, across the body', 'Lead with the elbow', 'Stop at shoulder height'] },
+
+  { id: 'machine_shoulder_press', name: 'Machine shoulder press', muscle: 'shoulders', pattern: 'vertical_push', equipment: ['machine'], compound: true, difficulty: 1,
+    cues: ['Handles start about chin height', 'Press straight up', 'Control the way down'] },
+  { id: 'reverse_pec_deck', name: 'Reverse pec deck (rear delts)', muscle: 'shoulders', pattern: 'rear_delt', equipment: ['machine'], compound: false, difficulty: 1,
+    cues: ['Chest on the pad, arms long', 'Sweep the handles out and back', 'Do not shrug'] },
+  { id: 'face_pull', name: 'Face pull (rear delts)', muscle: 'shoulders', pattern: 'rear_delt', equipment: ['cable'], compound: false, difficulty: 1,
+    cues: ['Rope at face height', 'Pull toward your forehead, elbows high', 'Pause, then return slowly'] },
+  { id: 'db_rear_delt_fly', name: 'Dumbbell rear delt fly', muscle: 'shoulders', pattern: 'rear_delt', equipment: ['dumbbell', 'bench'], compound: false, difficulty: 1,
+    cues: ['Chest on an inclined bench', 'Raise the dumbbells out to the sides', 'Lead with the elbows, no swinging'] },
 
   // Quads
   { id: 'bb_squat', name: 'Barbell back squat', muscle: 'quads', pattern: 'squat', equipment: ['barbell', 'rack'], compound: true, difficulty: 3,
@@ -51,6 +72,9 @@ export const EXERCISES: Exercise[] = [
   { id: 'leg_extension', name: 'Leg extension', muscle: 'quads', pattern: 'knee_extension', equipment: ['machine'], compound: false, difficulty: 1,
     cues: ['Knee lined up with the machine pivot', 'Straighten fully', 'Lower under control'] },
 
+  { id: 'hack_squat', name: 'Hack squat', muscle: 'quads', pattern: 'squat', equipment: ['machine'], compound: true, difficulty: 1,
+    cues: ['Back flat on the pad', 'Lower until knees are deeply bent', 'Drive through the whole foot'] },
+
   // Hamstrings
   { id: 'bb_rdl', name: 'Barbell Romanian deadlift', muscle: 'hamstrings', pattern: 'hinge', equipment: ['barbell'], compound: true, difficulty: 2,
     cues: ['Soft knees, push hips back', 'Bar stays close to the legs', 'Stop when the hamstrings are stretched'] },
@@ -59,11 +83,17 @@ export const EXERCISES: Exercise[] = [
   { id: 'leg_curl', name: 'Leg curl (machine)', muscle: 'hamstrings', pattern: 'knee_flexion', equipment: ['machine'], compound: false, difficulty: 1,
     cues: ['Knee lined up with the pivot', 'Curl all the way', 'Slow on the way back'] },
 
+  { id: 'seated_leg_curl', name: 'Seated leg curl', muscle: 'hamstrings', pattern: 'knee_flexion', equipment: ['machine'], compound: false, difficulty: 1,
+    cues: ['Lean slightly forward', 'Curl all the way down', 'Return slowly to the stretch'] },
+
   // Glutes
   { id: 'bb_hip_thrust', name: 'Barbell hip thrust', muscle: 'glutes', pattern: 'hip_thrust', equipment: ['barbell', 'bench'], compound: true, difficulty: 2,
     cues: ['Upper back on the bench, bar on the hips', 'Chin tucked, drive through the heels', 'Squeeze at the top without arching'] },
   { id: 'db_hip_thrust', name: 'Dumbbell hip thrust', muscle: 'glutes', pattern: 'hip_thrust', equipment: ['dumbbell', 'bench'], compound: true, difficulty: 1,
     cues: ['Dumbbell on the hips', 'Drive through the heels', 'Pause at the top'] },
+
+  { id: 'hip_abduction', name: 'Hip abduction machine', muscle: 'glutes', pattern: 'hip_abduction', equipment: ['machine'], compound: false, difficulty: 1,
+    cues: ['Sit tall or lean slightly forward', 'Push the pads out', 'Control the way back'] },
 
   // Biceps
   { id: 'db_curl', name: 'Dumbbell curl', muscle: 'biceps', pattern: 'elbow_flexion', equipment: ['dumbbell'], compound: false, difficulty: 1,
@@ -73,6 +103,11 @@ export const EXERCISES: Exercise[] = [
   { id: 'bb_curl', name: 'Barbell curl', muscle: 'biceps', pattern: 'elbow_flexion', equipment: ['barbell'], compound: false, difficulty: 1,
     cues: ['Shoulder-width grip', 'No swinging', 'Straighten the arms fully'] },
 
+  { id: 'hammer_curl', name: 'Hammer curl', muscle: 'biceps', pattern: 'elbow_flexion', equipment: ['dumbbell'], compound: false, difficulty: 1,
+    cues: ['Palms face each other', 'Elbows stay by your sides', 'Lower all the way'] },
+  { id: 'preacher_curl', name: 'Preacher curl (machine)', muscle: 'biceps', pattern: 'elbow_flexion', equipment: ['machine'], compound: false, difficulty: 1,
+    cues: ['Upper arms flat on the pad', 'Lower to a full stretch', 'Curl without lifting off the pad'] },
+
   // Triceps
   { id: 'cable_pushdown', name: 'Cable pushdown', muscle: 'triceps', pattern: 'elbow_extension', equipment: ['cable'], compound: false, difficulty: 1,
     cues: ['Elbows pinned to your sides', 'Push until arms are straight', 'Let the forearms come up to parallel'] },
@@ -81,11 +116,16 @@ export const EXERCISES: Exercise[] = [
   { id: 'skull_crusher', name: 'Barbell skull crusher', muscle: 'triceps', pattern: 'elbow_extension', equipment: ['barbell', 'bench'], compound: false, difficulty: 2,
     cues: ['Lower the bar toward your forehead', 'Elbows stay narrow', 'Extend fully'] },
 
+  { id: 'cable_overhead_ext', name: 'Overhead cable extension', muscle: 'triceps', pattern: 'elbow_extension', equipment: ['cable'], compound: false, difficulty: 1,
+    cues: ['Face away from the cable, rope behind your head', 'Elbows point forward', 'Extend fully, return to a deep stretch'] },
+
   // Calves
   { id: 'machine_calf_raise', name: 'Standing calf raise (machine)', muscle: 'calves', pattern: 'calf_raise', equipment: ['machine'], compound: false, difficulty: 1,
     cues: ['Balls of the feet on the edge', 'Pause in the deep stretch', 'Rise as high as you can'] },
   { id: 'db_calf_raise', name: 'Dumbbell calf raise', muscle: 'calves', pattern: 'calf_raise', equipment: ['dumbbell'], compound: false, difficulty: 1,
     cues: ['Stand on a step, hold a dumbbell', 'Pause at the bottom', 'Rise fully'] },
+  { id: 'seated_calf_raise', name: 'Seated calf raise', muscle: 'calves', pattern: 'calf_raise', equipment: ['machine'], compound: false, difficulty: 1,
+    cues: ['Pad on your lower thighs', 'Pause in the deep stretch', 'Rise as high as you can'] },
 ];
 
 export const EXERCISE_BY_ID: Record<string, Exercise> = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));

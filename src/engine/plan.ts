@@ -1,6 +1,6 @@
 import { available, EXERCISE_BY_ID } from './exercises.ts';
 import type {
-  Effort, Exercise, Experience, Explanation, Goal, Muscle, PlannedDay, PlannedExercise, Profile, Program, SplitId,
+  Effort, Exercise, Experience, Explanation, Goal, Muscle, Pattern, PlannedDay, PlannedExercise, Profile, Program, SplitId,
 } from './types.ts';
 
 export const MUSCLES: Muscle[] = ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'glutes', 'biceps', 'triceps', 'calves'];
@@ -8,16 +8,19 @@ export const MUSCLES: Muscle[] = ['chest', 'back', 'shoulders', 'quads', 'hamstr
 const UPPER: Muscle[] = ['chest', 'back', 'shoulders', 'biceps', 'triceps'];
 const LOWER: Muscle[] = ['quads', 'hamstrings', 'glutes', 'calves'];
 const PUSH: Muscle[] = ['chest', 'shoulders', 'triceps'];
-const PULL: Muscle[] = ['back', 'biceps'];
 
 // One cycle of each split; repeated to fill the week.
-const SPLIT_CYCLE: Record<SplitId, { name: string; muscles: Muscle[] }[]> = {
+type DayTemplate = { name: string; muscles: Muscle[]; only?: Partial<Record<Muscle, Pattern[]>> };
+// Pull days train rear delts (shoulders limited to rear-delt movements).
+const PULL_DAY: DayTemplate = { name: 'Pull', muscles: ['back', 'shoulders', 'biceps'], only: { shoulders: ['rear_delt'] } };
+
+const SPLIT_CYCLE: Record<SplitId, DayTemplate[]> = {
   full_body: [{ name: 'Full body', muscles: MUSCLES }],
   upper_lower: [{ name: 'Upper', muscles: UPPER }, { name: 'Lower', muscles: LOWER }],
-  ppl: [{ name: 'Push', muscles: PUSH }, { name: 'Pull', muscles: PULL }, { name: 'Legs', muscles: LOWER }],
+  ppl: [{ name: 'Push', muscles: PUSH }, PULL_DAY, { name: 'Legs', muscles: LOWER }],
   ulppl: [
     { name: 'Upper', muscles: UPPER }, { name: 'Lower', muscles: LOWER },
-    { name: 'Push', muscles: PUSH }, { name: 'Pull', muscles: PULL }, { name: 'Legs', muscles: LOWER },
+    { name: 'Push', muscles: PUSH }, PULL_DAY, { name: 'Legs', muscles: LOWER },
   ],
 };
 
@@ -52,10 +55,15 @@ export function recommendSplit(days: number): SplitId {
 // 2 = founder model: 1-3 sets, warm-up every exercise, weak/strong points.
 // 3 = effort styles (default: last set to failure, others 1-3 in reserve), isolation reps 10-15.
 // 4 = sessions filled with second movements up to the time limit (max 8 exercises).
-export const ENGINE_VERSION = 4;
+// 5 = 49-exercise library, compound mains, distinct-pattern seconds, accessories skipped before sets are cut.
+// 6 = rear delts on pull days; every accessory kept at least once a week.
+export const ENGINE_VERSION = 6;
 
 // Muscles that get a second movement first when a session has time (weak points always come before these).
-const SECOND_PRIORITY: Muscle[] = ['back', 'chest', 'quads', 'hamstrings', 'glutes', 'shoulders', 'biceps', 'triceps', 'calves'];
+const SECOND_PRIORITY: Muscle[] = ['back', 'chest', 'shoulders', 'quads', 'hamstrings', 'biceps', 'triceps'];
+const ARMS: Muscle[] = ['biceps', 'triceps'];
+// Skipped first (one per session, rotating) when a session is too long for everything at full sets.
+const ACCESSORIES: Muscle[] = ['calves', 'glutes', 'triceps', 'biceps'];
 const MAX_EXERCISES = 8;
 
 // Founder rule (2026-10-04): 1-3 working sets per exercise, never more.
@@ -116,27 +124,46 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   // One exercise per muscle per session, 1-3 working sets each. On short days (3 muscles or fewer,
   // e.g. Pull) big muscles get a second exercise with a different movement (row + pulldown).
   const seen: Partial<Record<Muscle, number>> = {};
-  const days: PlannedDay[] = dayTemplates.map((t) => {
-    const trainable = t.muscles.filter((m) => pool.some((e) => e.muscle === m));
+  const frequency = (m: Muscle) => dayTemplates.filter((d) => d.muscles.includes(m)).length;
+  const dropped: Partial<Record<Muscle, number>> = {};
+
+  const days: PlannedDay[] = dayTemplates.map((t, dayIndex) => {
+    const options = (m: Muscle) => pool.filter((e) => e.muscle === m && (!t.only?.[m] || t.only[m]!.includes(e.pattern)));
+    // A second movement must be a different movement pattern (row after pulldown, fly after press);
+    // arms may repeat the pattern with a different exercise (curl + hammer curl).
+    const canDouble = (m: Muscle) => (ARMS.includes(m) ? options(m).length > 1 : new Set(options(m).map((e) => e.pattern)).size > 1);
+    const trainable = t.muscles.filter((m) => options(m).length);
     const slots: { m: Muscle; sets: number; second: boolean }[] = trainable.map((m) => ({ m, sets: setsFor(m, emphasis), second: false }));
     const minutes = () => slots.reduce((a, x) => a + exerciseMinutes(x.sets), 0);
-    // Fill the session: weak points, then big muscles, get a second movement while time allows.
+    // Fill the session: weak points, then big muscles, then arms get a second movement while time allows.
     const order = [...emphasis.weak, ...SECOND_PRIORITY.filter((m) => !emphasis.weak.includes(m))];
     for (const m of order) {
-      if (!trainable.includes(m) || emphasis.strong.includes(m) || slots.length >= MAX_EXERCISES) continue;
-      if (pool.filter((e) => e.muscle === m).length < 2) continue;
+      if (!trainable.includes(m) || emphasis.strong.includes(m) || slots.length >= MAX_EXERCISES || !canDouble(m)) continue;
       const sets = setsFor(m, emphasis);
       if (minutes() + exerciseMinutes(sets) > profile.sessionMinutes) continue;
       slots.splice(slots.findIndex((x) => x.m === m) + 1, 0, { m, sets, second: true });
     }
-    // Fit the session length: drop second exercises first, then take a set from regular muscles
-    // (smallest muscles first), then from weak points. Strong points are already at 1 set.
+    // Fit the session length, in order:
+    // 1. drop second movements;
     for (let i = slots.length - 1; i >= 0 && minutes() > profile.sessionMinutes; i--) {
       if (slots[i].second) {
         slots.splice(i, 1);
         trimmed = true;
       }
     }
+    // 2. skip an accessory muscle today (rotating by day so none disappears for the week),
+    //    rather than cutting every exercise to 1 set; never a weak point or a once-a-week muscle;
+    const rotation = ACCESSORIES.map((_, k) => ACCESSORIES[(k + dayIndex) % ACCESSORIES.length]);
+    for (const m of rotation) {
+      if (minutes() <= profile.sessionMinutes) break;
+      const i = slots.findIndex((x) => x.m === m);
+      // keep every accessory on at least one day of the week
+      if (i < 0 || emphasis.weak.includes(m) || (dropped[m] ?? 0) >= frequency(m) - 1) continue;
+      slots.splice(i, 1);
+      dropped[m] = (dropped[m] ?? 0) + 1;
+      trimmed = true;
+    }
+    // 3. take a set from regular muscles (smallest first), then from weak points. Strong points are at 1.
     for (const pass of ['regular', 'weak'] as const) {
       for (let changed = true; changed && minutes() > profile.sessionMinutes;) {
         changed = false;
@@ -150,16 +177,20 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
     }
     const picked: { ex: Exercise; sets: number }[] = [];
     for (const { m, sets, second } of slots) {
-      const candidates = rankCandidates(pool.filter((e) => e.muscle === m), profile.experience);
+      const candidates = rankCandidates(options(m), profile.experience);
       if (second) {
         const first = picked.find((p) => p.ex.muscle === m)!.ex;
-        const other = candidates.find((e) => e.id !== first.id && e.pattern !== first.pattern) ?? candidates.find((e) => e.id !== first.id)!;
+        const other = candidates.find((e) => e.id !== first.id && e.pattern !== first.pattern)
+          ?? candidates.find((e) => e.id !== first.id)!; // arms only (canDouble)
         picked.push({ ex: other, sets });
         continue;
       }
+      // The main exercise for a muscle is a compound lift when one exists, rotating across the week.
+      const compounds = candidates.filter((e) => e.compound);
+      const mains = compounds.length ? compounds : candidates;
       const nth = seen[m] ?? 0;
       seen[m] = nth + 1;
-      picked.push({ ex: candidates[nth % candidates.length], sets });
+      picked.push({ ex: mains[nth % mains.length], sets });
     }
     picked.sort((a, b) => Number(b.ex.compound) - Number(a.ex.compound));
     const exercises: PlannedExercise[] = picked.map(({ ex, sets }) => {
