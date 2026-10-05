@@ -1,29 +1,23 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Modal, Pressable, View } from 'react-native';
+import { View } from 'react-native';
 
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
-import { MUSCLE_NAMES, MUSCLES, recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
-import type { Muscle, PlannedExercise, SplitId } from '@/engine/types.ts';
+import { exerciseMinutes, MUSCLE_NAMES, recommendSplit, SPLIT_DAYS, SPLIT_NAMES } from '@/engine/plan.ts';
+import type { SplitId } from '@/engine/types.ts';
 import { supabase } from '@/lib/supabase';
-import { isDeload, localDate, saveProgram, startOfWeek, toProfile, track, updatePlan, updateProfile, useData } from '@/lib/data';
-import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
+import { isDeload, localDate, saveProgram, startOfWeek, toProfile, track, updateProfile, useData } from '@/lib/data';
+import { Button, C, Card, Chip, Choice, Header, IconTile, Section, Sheet, s, Screen, T } from '@/ui';
 import { alert, attempt } from '@/lib/alert';
 import { WhyBody } from '@/why';
 
 export default function Plan() {
   const { profile, program, refresh } = useData();
-  const [editing, setEditing] = useState<{ day: number; ex: number } | null>(null);
   const [schedule, setSchedule] = useState<{ days: number; split: SplitId } | null>(null);
-  const [doneSets, setDoneSets] = useState<Partial<Record<Muscle, number>>>({});
+  const [doneDays, setDoneDays] = useState<number[]>([]);
   useFocusEffect(useCallback(() => {
-    supabase.from('logged_sets').select('exercise_id').gte('created_at', startOfWeek()).then(({ data }) => {
-      const counts: Partial<Record<Muscle, number>> = {};
-      for (const r of data ?? []) {
-        const m = EXERCISE_BY_ID[r.exercise_id]?.muscle;
-        if (m) counts[m] = (counts[m] ?? 0) + 1;
-      }
-      setDoneSets(counts);
+    supabase.from('workouts').select('day_index').not('finished_at', 'is', null).gte('finished_at', startOfWeek()).then(({ data }) => {
+      setDoneDays((data ?? []).map((r) => r.day_index as number));
     });
   }, []));
   if (!profile || !program) return null;
@@ -59,119 +53,100 @@ export default function Plan() {
     await refresh();
   }
 
-  async function savePin(pin: Pick<PlannedExercise, 'pinnedSets' | 'pinnedReps'>) {
-    const { day, ex } = editing!;
-    const days = plan.days.map((d, i) => i !== day ? d : {
-      ...d, exercises: d.exercises.map((e, k) => (k === ex ? { ...e, pinnedSets: pin.pinnedSets, pinnedReps: pin.pinnedReps } : e)),
-    });
-    if (!(await attempt(() => updatePlan(program!.id, { ...plan, days }), 'save the pin'))) return;
-    track('pin', { set: pin.pinnedSets !== undefined || pin.pinnedReps !== undefined });
-    setEditing(null);
-    await refresh();
-  }
+  const n = plan.days.length;
+  const slots = SLOTS[n] ?? SLOTS[3];
+  const week = Array.from({ length: 7 }, (_, d) => (slots.includes(d) ? slots.indexOf(d) : -1));
+  const todayIdx = (new Date().getDay() + 6) % 7;
 
   return (
     <Screen edges={['top']}>
-      <T size="xl">Your plan</T>
-      <T muted>{SPLIT_NAMES[plan.split]} · {plan.days.length} days a week · {profile.session_minutes} min sessions</T>
-      {plan.emphasis?.weak.length || plan.emphasis?.strong.length ? (
-        <T muted size="sm">
-          {plan.emphasis.weak.length ? `Weak points (3 sets): ${plan.emphasis.weak.map((m) => MUSCLE_NAMES[m]).join(', ')}. ` : ''}
-          {plan.emphasis.strong.length ? `Strong points (1 set): ${plan.emphasis.strong.map((m) => MUSCLE_NAMES[m]).join(', ')}.` : ''}
-        </T>
-      ) : null}
-      <T muted size="sm">Tap an exercise to pin its sets or reps.</T>
+      <Header kicker={`${SPLIT_NAMES[plan.split]} · ${n} days a week`} title="Your plan" />
+      {deload ? <Chip tone="accent" icon="leaf" label={`Deload week until ${profile.deload_until}`} /> : null}
 
-      {plan.days.map((d, i) => (
-        <Card key={i} style={i === program.next_day ? { borderColor: C.accent } : undefined}>
-          <T bold>{d.name}{i === program.next_day ? ' · next' : ''}</T>
-          {d.exercises.map((e, k) => {
-            const pinned = e.pinnedSets !== undefined || e.pinnedReps !== undefined;
+      <Section title="This week">
+        <View style={{ gap: 10 }}>
+          {week.map((di, d) => {
+            const today = d === todayIdx;
+            if (di < 0) {
+              return (
+                <View key={d} style={[s.row, { paddingHorizontal: 4, minHeight: 36 }]}>
+                  <T size="micro" style={{ width: 40 }} color={today ? C.accent : C.faint}>{DAYS[d]}</T>
+                  <T muted size="sm">Rest</T>
+                </View>
+              );
+            }
+            const day = plan.days[di];
+            const complete = doneDays.includes(di);
+            const next = di === program.next_day && !complete;
+            const muscles = [...new Set(day.exercises.map((e) => EXERCISE_BY_ID[e.exerciseId].muscle))];
+            const mins = Math.round(day.exercises.reduce((a, e) => a + exerciseMinutes(e.pinnedSets ?? e.sets), 0) / 5) * 5;
             return (
-              <Pressable key={e.exerciseId} accessibilityRole="button" onPress={() => setEditing({ day: i, ex: k })} style={{ minHeight: 32, justifyContent: 'center' }}>
-                <T muted>
-                  {pinned ? '📌 ' : ''}{EXERCISE_BY_ID[e.exerciseId].name}: {e.pinnedSets ?? e.sets} × {e.pinnedReps ?? `${e.repMin}–${e.repMax}`}
-                </T>
-              </Pressable>
+              <View key={d} style={s.row}>
+                <T size="micro" style={{ width: 40, alignSelf: 'flex-start', paddingTop: 20 }} color={today ? C.accent : C.muted}>{DAYS[d]}</T>
+                <Card onPress={() => router.push({ pathname: '/workout-day/[index]', params: { index: String(di) } })}
+                  style={[{ flex: 1, gap: 8 }, next && { borderColor: C.accent, borderWidth: 1.5 }]}>
+                  <View style={[s.row, { justifyContent: 'space-between' }]}>
+                    <T size="lg" style={{ flex: 1 }}>{day.name}</T>
+                    {complete ? <Chip tone="pos" icon="checkmark" label="Done" /> : next ? <Chip tone="accent" label="Up next" /> : null}
+                  </View>
+                  <T muted size="sm">{muscles.map((m) => MUSCLE_NAMES[m]).join(' · ')}</T>
+                  <T muted size="sm">~{mins} min · {day.exercises.length} exercises</T>
+                </Card>
+              </View>
             );
           })}
+        </View>
+        <T muted size="sm">Suggested layout. Rep Proof follows your order, so a missed day just shifts the week.</T>
+      </Section>
+
+      <Section title="Volume this week" action="Details" onAction={() => router.push('/volume')}>
+        <Card onPress={() => router.push('/volume')}>
+          <T muted size="sm">Hard sets done vs planned, counted from your logs. Warm-ups do not count.</T>
+          {Object.keys(plan.weeklySets).slice(0, 4).map((m) => {
+            const planned = plan.weeklySets[m as keyof typeof plan.weeklySets]!;
+            return (
+              <View key={m} style={[s.row, { justifyContent: 'space-between' }]}>
+                <T muted>{MUSCLE_NAMES[m as keyof typeof MUSCLE_NAMES]}</T>
+                <T bold>{planned} sets planned</T>
+              </View>
+            );
+          })}
+          <T size="sm" bold color={C.accent}>See weekly volume</T>
         </Card>
-      ))}
+      </Section>
 
-      <Card>
-        <T bold>Volume this week: done / planned hard sets</T>
-        {MUSCLES.filter((m) => plan.weeklySets[m]).map((m) => {
-          const planned = plan.weeklySets[m]!;
-          const done = doneSets[m] ?? 0;
-          return (
-            <View key={m} style={{ gap: 4 }}>
-              <View style={[s.row, { justifyContent: 'space-between' }]}>
-                <T muted>{MUSCLE_NAMES[m]}</T>
-                <T bold style={{ color: done >= planned ? C.accent : C.text }}>{done} / {planned}</T>
-              </View>
-              <View style={{ height: 6, borderRadius: 3, backgroundColor: C.border, overflow: 'hidden' }}>
-                <View style={{ width: `${Math.min(100, (100 * done) / planned)}%`, height: 6, backgroundColor: C.accent }} />
-              </View>
-            </View>
-          );
-        })}
-        <T muted size="sm">Counted automatically from your logged working sets (Monday to Sunday). Warm-ups do not count.</T>
-      </Card>
+      <Section title="Why this plan">
+        {plan.explanations.map((e, i) => <Card key={i}><WhyBody e={e} /></Card>)}
+      </Section>
 
-      <T size="lg">Why this plan</T>
-      {plan.explanations.map((e, i) => <Card key={i}><WhyBody e={e} /></Card>)}
+      <Section title="Tools">
+        <Card onPress={() => router.push('/library')} style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <IconTile name="book" tone="accent" />
+          <View style={{ flex: 1 }}><T bold>Exercise library</T><T muted size="sm">Browse movements by muscle</T></View>
+        </Card>
+        <Button title="Change days or split" onPress={() => setSchedule({ days: profile.days, split: plan.split })} />
+        <Button title={deload ? `End deload (until ${profile.deload_until})` : 'Start a deload week'} onPress={toggleDeload} />
+      </Section>
 
-      <Button title="The science behind RepProof" onPress={() => router.push('/science')} />
-      <Button title="Edit training profile" onPress={() => router.push('/training')} />
-      <Button title="Change days or split" onPress={() => setSchedule({ days: profile.days, split: plan.split })} />
-      <Button title={deload ? `End deload (until ${profile.deload_until})` : 'Start a deload week'} onPress={toggleDeload} />
-
-      <Modal visible={!!editing} transparent animationType="slide" onRequestClose={() => setEditing(null)}>
-        {editing ? <PinSheet e={plan.days[editing.day].exercises[editing.ex]} onSave={savePin} onClose={() => setEditing(null)} /> : null}
-      </Modal>
-
-      <Modal visible={!!schedule} transparent animationType="slide" onRequestClose={() => setSchedule(null)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setSchedule(null)} />
-        {schedule ? (
-          <Card style={sheet}>
-            <T size="lg">Change schedule</T>
-            <T muted size="sm">Your logged weights carry over. Pins reset and the week starts from day 1.</T>
-            <View style={[s.row, { flexWrap: 'wrap' }]}>
-              {[2, 3, 4, 5, 6].map((d) => (
-                <Button key={d} title={`${d} days`} kind={schedule.days === d ? 'primary' : 'secondary'}
-                  onPress={() => setSchedule({ days: d, split: SPLIT_DAYS[schedule.split].includes(d) ? schedule.split : recommendSplit(d) })} />
-              ))}
-            </View>
-            <Choice value={schedule.split} onChange={(sp) => setSchedule({ ...schedule, split: sp })}
-              options={(Object.keys(SPLIT_DAYS) as SplitId[]).filter((sp) => SPLIT_DAYS[sp].includes(schedule.days))
-                .map((sp) => ({ value: sp, label: SPLIT_NAMES[sp], hint: sp === recommendSplit(schedule.days) ? 'Recommended' : undefined }))} />
-            <Button kind="primary" title="Rebuild my plan" onPress={saveSchedule} />
-          </Card>
-        ) : null}
-      </Modal>
+      <Sheet visible={!!schedule} onClose={() => setSchedule(null)} title="Change schedule">
+        {schedule ? (<>
+          <T muted size="sm">Your logged weights carry over. Pins reset and the week starts from day 1.</T>
+          <View style={[s.row, { flexWrap: 'wrap' }]}>
+            {[2, 3, 4, 5, 6].map((d) => (
+              <Button key={d} title={`${d} days`} kind={schedule.days === d ? 'primary' : 'secondary'}
+                onPress={() => setSchedule({ days: d, split: SPLIT_DAYS[schedule.split].includes(d) ? schedule.split : recommendSplit(d) })} />
+            ))}
+          </View>
+          <Choice value={schedule.split} onChange={(sp) => setSchedule({ ...schedule, split: sp })}
+            options={(Object.keys(SPLIT_DAYS) as SplitId[]).filter((sp) => SPLIT_DAYS[sp].includes(schedule.days))
+              .map((sp) => ({ value: sp, label: SPLIT_NAMES[sp], hint: sp === recommendSplit(schedule.days) ? 'Recommended' : undefined }))} />
+          <Button kind="primary" title="Rebuild my plan" onPress={saveSchedule} />
+        </>) : null}
+      </Sheet>
     </Screen>
   );
 }
 
-const sheet = { borderRadius: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 };
-
-function PinSheet({ e, onSave, onClose }: { e: PlannedExercise; onSave: (p: Pick<PlannedExercise, 'pinnedSets' | 'pinnedReps'>) => void; onClose: () => void }) {
-  const [sets, setSets] = useState(e.pinnedSets !== undefined ? String(e.pinnedSets) : '');
-  const [reps, setReps] = useState(e.pinnedReps !== undefined ? String(e.pinnedReps) : '');
-  const num = (v: string, max: number) => (v === '' ? undefined : Math.min(max, Math.max(1, Math.round(Number(v)) || 1)));
-  return (
-    <>
-      <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={onClose} />
-      <Card style={sheet}>
-        <T size="lg">{EXERCISE_BY_ID[e.exerciseId].name}</T>
-        <T muted size="sm">Pinned values stay fixed; the app keeps adjusting the weight. Leave blank to let the app decide.</T>
-        <View style={s.row}>
-          <View style={{ flex: 1 }}><Field label={`Sets, 1-3 (plan: ${e.sets})`} keyboardType="number-pad" value={sets} onChangeText={setSets} /></View>
-          <View style={{ flex: 1 }}><Field label={`Reps (plan: ${e.repMin}–${e.repMax})`} keyboardType="number-pad" value={reps} onChangeText={setReps} /></View>
-        </View>
-        <Button kind="primary" title="Save" onPress={() => onSave({ pinnedSets: num(sets, 3), pinnedReps: num(reps, 30) })} />
-        <Button kind="ghost" title="Unpin both" onPress={() => onSave({ pinnedSets: undefined, pinnedReps: undefined })} />
-      </Card>
-    </>
-  );
-}
+const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+/** Suggested weekday slots by training days per week (0 = Monday). */
+const SLOTS: Record<number, number[]> = { 1: [0], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5] };

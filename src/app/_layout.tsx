@@ -1,4 +1,4 @@
-import { DarkTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from 'expo-router';
+import { DefaultTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { View } from 'react-native';
@@ -6,7 +6,8 @@ import { View } from 'react-native';
 import { DataProvider, useData } from '@/lib/data';
 import { Button, C, Loading, Screen, T } from '@/ui';
 
-const theme = { ...DarkTheme, colors: { ...DarkTheme.colors, background: C.bg, card: C.bg, text: C.text, primary: C.accent, border: C.border } };
+const theme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: C.bg, card: C.bg, text: C.text, primary: C.accent, border: C.border } };
+const pushed = { headerShown: true, headerShadowVisible: false, headerStyle: { backgroundColor: C.bg }, headerTintColor: C.text, headerBackButtonDisplayMode: 'minimal' as const, headerTitleStyle: { fontWeight: '700' as const } };
 
 function Routes() {
   const { session, profile, program, loading, failed, refresh } = useData();
@@ -27,11 +28,16 @@ function Routes() {
       <Stack.Protected guard={ready}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="workout" options={{ gestureEnabled: false }} />
-        <Stack.Screen name="settings" options={{ headerShown: true, title: 'Settings' }} />
-        <Stack.Screen name="food" options={{ headerShown: true, title: 'Add food' }} />
-        <Stack.Screen name="science" options={{ headerShown: true, title: 'The science' }} />
-        <Stack.Screen name="feedback" options={{ headerShown: true, title: 'Feedback' }} />
-        <Stack.Screen name="training" options={{ headerShown: true, title: 'Training profile' }} />
+        <Stack.Screen name="settings" options={{ ...pushed, title: 'Settings' }} />
+        <Stack.Screen name="food" options={{ ...pushed, title: 'Add food' }} />
+        <Stack.Screen name="science" options={{ ...pushed, title: 'The science' }} />
+        <Stack.Screen name="feedback" options={{ ...pushed, title: 'Feedback' }} />
+        <Stack.Screen name="training" options={{ ...pushed, title: 'Training profile' }} />
+        <Stack.Screen name="volume" options={{ ...pushed, title: 'Weekly volume' }} />
+        <Stack.Screen name="insights" options={{ ...pushed, title: 'Insights' }} />
+        <Stack.Screen name="library" options={{ ...pushed, title: 'Exercise library' }} />
+        <Stack.Screen name="exercise/[id]" options={{ ...pushed, title: '' }} />
+        <Stack.Screen name="workout-day/[index]" options={{ ...pushed, title: '' }} />
       </Stack.Protected>
     </Stack>
   );
@@ -68,7 +74,7 @@ export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
 export default function RootLayout() {
   return (
     <ThemeProvider value={theme}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <DataProvider>
         <Routes />
       </DataProvider>
