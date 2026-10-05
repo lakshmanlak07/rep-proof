@@ -9,6 +9,7 @@ export const PATTERN_LABEL: Record<Pattern, string> = {
   horizontal_push: 'Horizontal press', vertical_push: 'Vertical press', horizontal_pull: 'Horizontal row', vertical_pull: 'Vertical pull',
   squat: 'Squat', lunge: 'Lunge', hinge: 'Hip hinge', hip_thrust: 'Hip thrust', knee_extension: 'Knee extension', knee_flexion: 'Knee flexion',
   fly: 'Fly', lateral_raise: 'Lateral raise', elbow_flexion: 'Elbow flexion', elbow_extension: 'Elbow extension', calf_raise: 'Calf raise',
+  rear_delt: 'Rear delt fly', pullover: 'Pullover', hip_abduction: 'Hip abduction',
 };
 
 export const CATEGORIES: { id: Muscle | 'abs'; label: string; icon: string }[] = [
@@ -21,6 +22,7 @@ export const CATEGORIES: { id: Muscle | 'abs'; label: string; icon: string }[] =
 const PRIMARY: Partial<Record<string, string>> = {
   incline_db_press: 'Upper chest', cable_fly: 'Chest (stretched position)', db_fly: 'Chest (stretched position)', db_lateral_raise: 'Side delts', cable_lateral_raise: 'Side delts',
   bb_rdl: 'Hamstrings', db_rdl: 'Hamstrings', leg_extension: 'Quads (rectus femoris)', db_calf_raise: 'Calves', machine_calf_raise: 'Calves',
+  reverse_pec_deck: 'Rear delts', face_pull: 'Rear delts', db_rear_delt_fly: 'Rear delts', straight_arm_pulldown: 'Lats', db_pullover: 'Lats', hip_abduction: 'Glute medius', incline_bb_press: 'Upper chest',
 };
 const MUSCLE_TEXT: Record<Muscle, string> = {
   chest: 'Chest', back: 'Lats & upper back', shoulders: 'Shoulders', quads: 'Quads', hamstrings: 'Hamstrings', glutes: 'Glutes', biceps: 'Biceps', triceps: 'Triceps', calves: 'Calves',
@@ -29,6 +31,7 @@ const SECONDARY: Record<Pattern, string> = {
   horizontal_push: 'Front delts, triceps', vertical_push: 'Triceps, upper chest', horizontal_pull: 'Biceps, rear delts', vertical_pull: 'Biceps, rear delts',
   squat: 'Glutes, adductors', lunge: 'Glutes, adductors', hinge: 'Glutes, spinal erectors', hip_thrust: 'Hamstrings', knee_extension: 'None (isolation)',
   knee_flexion: 'Calves', fly: 'Front delts', lateral_raise: 'Upper traps', elbow_flexion: 'Forearms', elbow_extension: 'None (isolation)', calf_raise: 'None (isolation)',
+  rear_delt: 'Mid traps, rhomboids', pullover: 'Long head of triceps, chest', hip_abduction: 'None (isolation)',
 };
 const MISTAKES: Record<Pattern, string[]> = {
   horizontal_push: ['Flaring the elbows straight out', 'Bouncing the weight off the chest', 'Letting the shoulders roll forward'],
@@ -46,6 +49,9 @@ const MISTAKES: Record<Pattern, string[]> = {
   elbow_flexion: ['Swinging the body', 'Elbows drifting forward', 'Half reps at the bottom'],
   elbow_extension: ['Elbows flaring or drifting', 'Using body weight to push', 'Stopping short of full extension'],
   calf_raise: ['Bouncing out of the stretch', 'Short range of motion', 'Rushing the reps'],
+  rear_delt: ['Shrugging the shoulders up', 'Turning it into a row with bent elbows', 'Going too heavy to control'],
+  pullover: ['Bending the elbows into a press', 'Arching the lower back', 'Cutting the stretch short'],
+  hip_abduction: ['Using momentum', 'Rushing the return', 'Partial range'],
 };
 
 export type ExerciseInfo = {
