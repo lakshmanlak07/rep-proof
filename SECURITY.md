@@ -1,58 +1,67 @@
 # Security
 
-Last audit: 2026-10-06. No app is "unhackable"; this file lists what is protected, how it is tested, and what is still open.
+Last audit and remediation: 2026-10-06. No app is "unhackable". This file lists what is protected, how each
+control is tested, and what is still open. The launch to-do list is in [PRODUCTION_SECURITY_CHECKLIST.md](PRODUCTION_SECURITY_CHECKLIST.md).
 
 ## Reporting a problem
 
 Use GitHub's private reporting: Security tab -> Report a vulnerability. Please do not open a public issue for security problems.
 
-## How the app is protected
+## Threat model
 
-| Layer | Protection | Tested by |
-| --- | --- | --- |
-| Accounts | Supabase Auth (email + password, optional phone code). Sessions are Supabase JWTs. | Supabase |
-| Data access | Row-level security on every table: a user reads and writes only rows with their own `user_id`. Workouts and sets must point at the user's own program and workout. | `supabase/tests/security_tests.sql` |
-| Privilege | Users cannot change `profiles.plan_tier` (column grants). Admin metric, rate limiter and food cache are not reachable by users. | same |
-| Abuse | Per-user insert limits on every table and size caps on every free-form field (migration 4). Food search: 20 a minute, 500 a day. | same |
-| Integrity | Workout saves are one transaction, retry-safe (client id), with a server-set finish time. | same |
-| Errors | The app never shows raw server messages; sign-in errors do not say whether an account exists. | `npm test` |
-| Secrets | Only the Supabase URL and publishable key ship in the app. The USDA key and service-role key live only in Supabase secrets. Git history scanned: no secrets. | manual scan |
-| Food function | Signed-in users only (`verify_jwt`), POST only, input trimmed and length-capped, per-user quota. | `deno check` |
-| CI | Read-only token, actions pinned to commit SHAs, `npm audit` gate (critical). | GitHub Actions |
+The client is assumed hostile: anyone can change the app's JavaScript, its storage and its requests, or call
+Supabase directly with the public key. Every security decision is therefore made on the server
+(Postgres grants, row-level security, triggers, functions) or in the food edge function. The app's own checks
+are for usability only.
 
-`npm run test:db` runs every migration plus the security tests on an in-memory Postgres (PGlite) with a stand-in for Supabase's `auth` schema. It proves the policies, grants and triggers behave as written. It does not replace running `security_tests.sql` on the real project once.
+## Controls
+
+| Area | Control | Where | Tested by |
+| --- | --- | --- | --- |
+| Accounts | Supabase Auth (email + password; phone code optional). JWTs are verified by the API gateway; forged, unsigned and expired tokens are refused. | Supabase | `npm run test:live` |
+| Data isolation | Row-level security on every table: a user reads and writes only rows with their own `user_id`; workouts and sets must point at the user's own program and workout. | migrations 1-2 | `npm run test:db` |
+| Least privilege | Anonymous role has no table privileges. Users cannot TRUNCATE, cannot read analytics, feedback, the food cache or rate-limit counters, and cannot edit saved workouts or sets. | migration 4 | `npm run test:db` |
+| Privilege escalation | `plan_tier` is not writable by users (column grants). Admin metric and rate limiter are not callable by users. A forged `role` claim changes nothing. | migrations 2, 4 | `npm run test:db` |
+| Abuse limits | Per-user write limits on every table (row triggers, so bulk inserts and RPCs count every row), plan and profile rewrite limits, size caps on every free-form field (JSON measured as text, so compressible payloads do not slip through). | migrations 2, 4 | `npm run test:db` |
+| Workout integrity | `save_workout()` is one transaction, idempotent per client id (unique index; a concurrent duplicate returns the first save), and the server sets the finish time and clamps the start time on every insert path. | migration 4 | `npm run test:db` |
+| Food search | Signed-in users only (`verify_jwt` + a per-user check as the caller), POST only, body ≤ 1 KB, validated and normalised input, 20 searches a minute and 500 a day per user, 8 s upstream timeout, fixed upstream hosts, USDA key sent in a header (never in URLs or logs), generic error replies, expired cache entries purged. | `supabase/functions/food` | `npm test`, `deno check` |
+| Error messages | Users see fixed messages only: no table, column or constraint names, no stack traces, and sign-in/sign-up errors do not reveal whether an account exists. Full errors are logged in development builds only. | `src/lib/errors.ts` | `npm test` |
+| Session on the device | Stored in the iOS Keychain / Android Keystore (`expo-secure-store`, this device only), split into chunks under the platform size limit. Sessions saved by older versions are moved over once and erased from plain storage. A reinstall does not inherit an old Keychain session. | `src/lib/chunked.ts`, `src/lib/supabase.ts` | `npm test` |
+| Local health data | The unsaved workout (with check-in answers) is erased whenever the session ends, however it ends. | `src/lib/supabase.ts` | code review |
+| Deep links | Links that do not decode cleanly or are over 2 KB go to the home screen instead of the router (blocks the `decode-uri-component` slow path). | `src/app/+native-intent.tsx` | `npm test` |
+| Analytics | Events carry no health answers: check-in events record only that a check-in happened; pain reports are not sent. | `src/app/workout.tsx` | `npm test` (source scan) |
+| Secrets | Only the Supabase URL and publishable key ship in the app. The service key and USDA key live in Supabase secrets. Repo, full git history and the built bundle are scanned on every push. | `scripts/secret-scan.mjs` | CI |
+| CI | Read-only token, no secrets, actions pinned to commit SHAs (kept current by Dependabot), production bundle build, critical `npm audit` gate. | `.github/workflows/ci.yml` | GitHub Actions |
+
+### How the tests prove something
+
+- `npm run test:db` runs every migration and `supabase/tests/security_tests.sql` (77 checks) on an in-memory
+  Postgres with a stand-in for Supabase's `auth` schema and default grants. It then removes 15 controls one at
+  a time (row-level security, ownership check, column grants, anonymous grants, rate limits, size cap, duplicate
+  guard, server time, food quota, ...) and fails unless the suite catches every one.
+- `npm test` covers the app-side controls; each was also checked by deliberately breaking it.
+- `npm run test:live` probes the real project as an outsider (no account, forged tokens). It creates nothing.
+- The stand-in is not Supabase itself, so run `security_tests.sql` once on the real project too (checklist).
 
 ## Data map (for the privacy policy)
 
 | Data | Where | Who can read it | Deleted by |
 | --- | --- | --- | --- |
 | Email or phone number, password hash | Supabase Auth | User; project owner | Delete account |
-| Birth year, sex (optional), height, bodyweight, experience, goal, schedule, unit | `profiles` | User; project owner | Delete account |
-| Programs, workouts, sets, check-ins (sleep, soreness, energy), pain reports | `programs`, `workouts`, `logged_sets`, `events` | User; project owner | Delete account |
+| Birth year, sex (optional), height, bodyweight, experience, goal, schedule, unit, movements to avoid | `profiles` | User; project owner | Delete account |
+| Programs, workouts, sets | `programs`, `workouts`, `logged_sets` | User; project owner | Delete account |
+| **Health-related:** check-ins (sleep, soreness, energy) | `workouts.checkin`; on the phone in the unsaved workout until it is saved or the session ends | User; project owner | Delete account / sign-out (phone copy) |
+| **Health-related:** pain reports | Not stored or sent. If the user chooses "avoid this movement", only the movement pattern is added to `profiles.avoid` | User; project owner | Delete account |
 | Food, saved meals, cardio, bodyweight logs | own tables | User; project owner | Delete account |
 | Feedback and survey answers | `feedback` | Project owner only | Delete account |
-| Usage events (screen actions, no free text) | `events` | Project owner only | Delete account |
-| Food search text and barcodes | Sent to Open Food Facts (from the phone) and USDA (via the food function); cached by query, not by user | Those services | Cache expires after 30 days |
-| Session token, unsaved workout, coach notes | Phone storage (SQLite) | Anyone with the unlocked phone | Sign out / uninstall |
+| Usage events (button-level actions; no free text, no health answers) | `events` | Project owner only | Delete account |
+| Food search text and barcodes | Open Food Facts (from the phone, and from the food function) and USDA (from the food function). Cached by query, not by user | Those services | Cache entries expire after 30 days |
+| Login session | iOS Keychain / Android Keystore | This app on this device | Sign-out / delete account |
+| Coach notes (training decisions), survey and waitlist flags | Phone storage (SQLite), per user | Anyone with the unlocked phone | Uninstall |
 
-Check-ins and pain reports are health-related. Say so in the privacy policy and store data-safety forms.
+Nothing is sent to third-party analytics, crash reporting or advertising services. Logs: the food function
+logs only an error type; the app logs errors only in development builds.
 
 ## Known remaining risks
 
-- Email confirmation is off for the beta: someone can sign up with an address they do not own. Turn it on (with custom SMTP) before public launch.
-- Phone sign-in can be abused to send paid texts (SMS pumping). Enable CAPTCHA and SMS limits before switching it on.
-- The session token is stored unencrypted on the phone (normal for Supabase apps; a stolen unlocked phone is out of scope).
-- `npm audit` reports advisories in build tools and in `decode-uri-component` (a malformed deep link could freeze the app). No compatible fix upstream yet; recheck on each Expo upgrade.
-- The repository is public. No secrets are in it, but the database design is visible.
-- The food function allows any web origin (CORS `*`). It uses no cookies, so this does not expose user data.
-
-## Production checklist
-
-See the "Manual actions" list in the 2026-10-06 audit report; the short version:
-
-1. Run migration 4, then `supabase/tests/security_tests.sql` (expect `ALL SECURITY TESTS PASSED`).
-2. Auth settings: minimum password length 8, leaked-password protection on, rate limits reviewed, CAPTCHA on.
-3. Before public launch: email confirmation on with custom SMTP; phone sign-in only with CAPTCHA and SMS limits.
-4. Deploy the food function with `npx supabase functions deploy food` (keeps `verify_jwt`).
-5. Publish a privacy policy that matches the data map above.
-6. GitHub repo -> Settings -> Security -> turn on private vulnerability reporting and Dependabot alerts.
+See "Remaining accepted risks" in [PRODUCTION_SECURITY_CHECKLIST.md](PRODUCTION_SECURITY_CHECKLIST.md).

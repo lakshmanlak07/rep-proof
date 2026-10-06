@@ -21,15 +21,18 @@ export function sum(rows: Macros[]): Macros {
 }
 
 
+/** Errors whose text is written for users (fixed strings, never server text). */
+export class FoodError extends Error {}
+
 /** The `food` edge function: USDA + Open Food Facts merged server-side, USDA key kept on the server. */
 async function callFood(body: { query?: string; upc?: string }): Promise<Food[]> {
   const { data, error } = await supabase.functions.invoke('food', { body });
   if (error) {
     // FunctionsHttpError carries the HTTP response; network failures have none.
     const status = (error as { context?: { status?: number } }).context?.status;
-    if (status === 429) throw new Error('Food search is busy right now. Try again in a minute.');
-    if (status) throw new Error('Food search had a problem. Try again shortly.');
-    throw new Error('Could not reach food search. Check your connection and try again.');
+    if (status === 429) throw new FoodError('Food search is busy right now. Try again in a minute.');
+    if (status) throw new FoodError('Food search had a problem. Try again shortly.');
+    throw new FoodError('Could not reach food search. Check your connection and try again.');
   }
   return (data?.foods ?? []) as Food[];
 }
@@ -46,14 +49,14 @@ async function offSearch(query: string): Promise<Food[]> {
     // fall through to the classic endpoint
   }
   const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${q}&search_simple=1&json=1&page_size=30&fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
-  if (!res.ok) throw new Error('Food search had a problem. Try again shortly.');
+  if (!res.ok) throw new FoodError('Food search had a problem. Try again shortly.');
   return toFoods((await res.json()).products);
 }
 
 async function offBarcode(code: string): Promise<Food[]> {
   const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
   if (res.status === 404) return [];
-  if (!res.ok) throw new Error('Barcode lookup had a problem. Try again shortly.');
+  if (!res.ok) throw new FoodError('Barcode lookup had a problem. Try again shortly.');
   const food = fromOff((await res.json()).product);
   return food ? [food] : [];
 }

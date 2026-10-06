@@ -41,7 +41,8 @@
           "cameraPermission": "RepProof uses the camera to scan food barcodes.",
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

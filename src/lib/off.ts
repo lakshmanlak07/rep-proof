@@ -22,7 +22,7 @@ const num = (v: unknown) => {
 /** One Open Food Facts product (barcode lookup or search hit) to our Food shape; null if unusable. */
 export function fromOff(p: Record<string, any> | undefined | null): Food | null {
   if (!p) return null;
-  const name = String(p.product_name || p.generic_name || '').trim();
+  const name = String(p.product_name || p.generic_name || '').trim().slice(0, 120); // food_logs.name allows 200
   const n = p.nutriments ?? {};
   // kcal can be missing while kJ is present (1 kcal = 4.184 kJ).
   const kcal = num(n['energy-kcal_100g']) || num(n.energy_100g) / 4.184;

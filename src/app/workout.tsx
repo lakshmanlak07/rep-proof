@@ -124,7 +124,7 @@ export default function Workout() {
   async function start(c: CheckIn | null) {
     setBusy(true);
     const badDay = !!c && isBadDay(c);
-    if (c) track('checkin', { bad: badDay });
+    if (c) track('checkin'); // that a check-in was answered, never the answers (health data)
     if (missed) {
       localStorage.setItem(MISSED_KEY, skip ? 'skip' : 'now');
       track('missed_session', { choice: skip ? 'skip' : 'now' });
@@ -207,7 +207,6 @@ export default function Workout() {
   function pain(i: number) {
     if (!draft) return;
     const ex = EXERCISE_BY_ID[draft.items[i].exerciseId];
-    track('pain', { exercise: ex.id });
     alert('Stop this exercise', PAIN_MSG, [
       { text: 'Swap it', onPress: () => setSwapFor(i) },
       {

@@ -1,0 +1,9 @@
+# Keeps the SHA-pinned workflow actions current. npm security alerts and fixes are switched on in
+# GitHub settings (see PRODUCTION_SECURITY_CHECKLIST.md); Expo packages move together with the SDK,
+# so they are upgraded with `npx expo install --fix`, not one by one.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

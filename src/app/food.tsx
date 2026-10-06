@@ -6,7 +6,7 @@ import { ActivityIndicator, Modal, Pressable, View } from 'react-native';
 import { alert, attempt } from '@/lib/alert';
 import { track } from '@/lib/data';
 import {
-  addLogs, byBarcode, deleteSavedMeal, fdcIdOf, forGrams, recentFoods, savedMeals, searchFoods, type Food, type Meal, type SavedMeal,
+  FoodError, addLogs, byBarcode, deleteSavedMeal, fdcIdOf, forGrams, recentFoods, savedMeals, searchFoods, type Food, type Meal, type SavedMeal,
 } from '@/lib/food';
 import { leave } from '@/lib/nav';
 import { Button, C, Card, Field, s, Screen, T } from '@/ui';
@@ -39,7 +39,7 @@ export default function AddFood() {
       if (source === 'barcode' && foods.length === 1) pick(foods[0]);
       if (!foods.length) setNotFound(source === 'barcode' ? 'That barcode is not in the food databases yet.' : 'No foods found. Try simpler words.');
     } catch (e) {
-      alert('Search failed', e instanceof Error ? e.message : 'Try again.');
+      alert('Search failed', e instanceof FoodError ? e.message : 'Check your connection and try again.');
     }
     setBusy(false);
   }
@@ -72,7 +72,7 @@ export default function AddFood() {
       <Button kind="primary" title="Scan a barcode" onPress={() => setScanning(true)} />
       <View style={s.row}>
         <View style={{ flex: 1 }}>
-          <Field placeholder="Search any food, e.g. oats" value={query} onChangeText={setQuery} returnKeyType="search" onSubmitEditing={search} />
+          <Field placeholder="Search any food, e.g. oats" value={query} onChangeText={setQuery} maxLength={100} returnKeyType="search" onSubmitEditing={search} />
         </View>
         <Button title="Search" disabled={!query.trim()} loading={busy} onPress={search} />
       </View>

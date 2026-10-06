@@ -16,6 +16,7 @@
     "expo-image": "~57.0.5",
     "expo-linking": "~57.0.11",
     "expo-router": "~57.0.24",
+    "expo-secure-store": "~57.0.4",
     "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
@@ -46,9 +47,11 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --test src/engine/engine.test.ts",
+    "test": "node --test src/engine/engine.test.ts src/lib/security.test.ts",
     "typecheck": "tsc --noEmit",
-    "test:db": "node supabase/tests/run.mjs"
+    "test:db": "node supabase/tests/run.mjs",
+    "test:live": "node supabase/tests/live_probe.mjs",
+    "scan:secrets": "node scripts/secret-scan.mjs"
   },
   "private": true
 }

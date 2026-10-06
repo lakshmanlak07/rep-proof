@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# Least privilege: CI only reads the repo.
+# Least privilege: CI only reads the repo. No secrets are used, so pull requests from forks get nothing.
 permissions:
   contents: read
 
@@ -17,6 +17,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+          fetch-depth: 0 # full history for the secret scan
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
@@ -24,9 +25,14 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npx expo lint
+      # Engine rules plus app-side security tests (error text, deep links, session storage, food requests, analytics).
       - run: npm test
-      # Database security tests: migrations + RLS/abuse checks on an in-memory Postgres.
+      # Database: every migration, the security suite on an in-memory Postgres, then 15 deliberately weakened
+      # controls that the suite must catch.
       - run: npm run test:db
+      # Production bundle builds, and neither the repo, its history nor the bundle holds a secret.
+      - run: npx expo export --platform android --output-dir dist
+      - run: npm run scan:secrets -- --history dist
       - run: npm audit --omit=dev --audit-level=critical
 
   food-function:
