@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 
 import { SPLIT_NAMES } from '@/engine/plan.ts';
-import { alert } from '@/lib/alert';
+import { alert, friendlyError } from '@/lib/alert';
 import { useData } from '@/lib/data';
 import { firstName } from '@/lib/insights';
 import { EXPERIENCE_OPTIONS, GOAL_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
@@ -28,7 +28,7 @@ export default function Profile() {
       {
         text: 'Delete', style: 'destructive', onPress: async () => {
           const { error } = await supabase.rpc('delete_account');
-          if (error) return alert('Could not delete', error.message);
+          if (error) return alert('Could not delete', friendlyError(error));
           clearLocal();
           await supabase.auth.signOut({ scope: 'local' });
         },

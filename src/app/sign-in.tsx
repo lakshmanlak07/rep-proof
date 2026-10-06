@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 
+import { friendlyAuthError } from '@/lib/alert';
 import { getPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
 import { Button, C, Choice, Field, Screen, T } from '@/ui';
@@ -19,7 +20,7 @@ function phoneError(message: string) {
   if (/phone.*(disabled|not enabled)|unsupported phone provider|sms provider/i.test(message)) {
     return 'Phone sign-in is not switched on yet. Use email for now.';
   }
-  return message;
+  return friendlyAuthError({ message });
 }
 
 export default function SignIn() {
@@ -41,7 +42,7 @@ export default function SignIn() {
     const { data, error } = signUp ? await supabase.auth.signUp(creds) : await supabase.auth.signInWithPassword(creds);
     setBusy(false);
     // Layout switches screens on sign-in; with email confirmation on, sign-up returns no session.
-    if (error) setError(error.message);
+    if (error) setError(friendlyAuthError(error));
     else if (signUp && !data.session) setError('Check your email to confirm your account, then sign in.');
   }
 
@@ -62,7 +63,7 @@ export default function SignIn() {
     setError('');
     const { error } = await supabase.auth.verifyOtp({ phone: normalizePhone(phone)!, token: code.trim(), type: 'sms' });
     setBusy(false);
-    if (error) setError(/expired|invalid/i.test(error.message) ? 'That code is wrong or expired. Request a new one.' : error.message);
+    if (error) setError(/expired|invalid/i.test(error.message) ? 'That code is wrong or expired. Request a new one.' : friendlyAuthError(error));
   }
 
   return (

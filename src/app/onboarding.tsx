@@ -7,6 +7,7 @@ import { ok, saveProgram, toProfile, track, useData, type ProfileRow } from '@/l
 import { clearPending, DISCLAIMER, getPending, isAdult, setPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
 import { AVOID_OPTIONS, EFFORT_OPTIONS, EXPERIENCE_OPTIONS, GOAL_OPTIONS, MINUTE_OPTIONS, MUSCLE_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
+import { friendlyError } from '@/lib/alert';
 import { Button, C, Card, Choice, Field, IconButton, IconTile, ProgressBar, Reveal, Screen, T } from '@/ui';
 
 const STEPS = ['experience', 'setup', 'goal', 'days', 'minutes', 'body', 'height', 'sex', 'avoid', 'weak', 'strong', 'effort', 'split'] as const;
@@ -61,7 +62,7 @@ export default function Onboarding() {
       setBusy(false);
       setBuilt(true); // the plan reveal screen calls refresh() to enter the app
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Try again.');
+      setError(friendlyError(e));
       setBusy(false);
     }
   }

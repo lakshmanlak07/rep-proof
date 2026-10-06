@@ -1,0 +1,6 @@
+project_id = "rep-proof"
+
+# Edge function settings used by `npx supabase functions deploy`.
+[functions.food]
+# Only requests carrying a valid Supabase JWT reach the function (the gateway checks it).
+verify_jwt = true

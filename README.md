@@ -9,9 +9,9 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 ## Setup (Windows)
 
 1. Supabase project → SQL Editor → run each file in `supabase/migrations/` in name order.
-   The beta project already has `20261001000000_initial.sql`; it still needs
-   `20261002000000_hardening.sql` (security) and `20261004000000_bodyweight_and_metrics.sql` (bodyweight log, beta metric).
-   The app keeps working before they are applied: plan rebuilds fall back to two steps and the bodyweight card shows a notice.
+   The beta project has migrations 1-3; it still needs `20261006000000_abuse_limits_and_atomic_saves.sql`
+   (rate limits, size caps, one-step workout saves). The app keeps working before it is applied (old save path).
+   Then run `supabase/tests/security_tests.sql` the same way: it should end with `ALL SECURITY TESTS PASSED` and keeps no data.
 2. Authentication → Sign In / Providers → Email → turn off "Confirm email" (beta).
 3. Copy `.env.example` to `.env`; fill in Project URL and publishable key (Project Settings → API).
 4. Food search works out of the box via Open Food Facts (worldwide packaged foods, barcodes; no key).
@@ -20,7 +20,7 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
    npx supabase login
    npx supabase link --project-ref <your project ref>
    npx supabase secrets set FDC_API_KEY=<key>
-   npx supabase functions deploy food
+   npx supabase functions deploy food   # uses supabase/config.toml: signed-in users only
    ```
 5. Run: `npx expo start`, scan the QR code with Expo Go.
 
@@ -43,6 +43,8 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 | Data | `supabase/migrations` | Row-level security on every table; users only see their own rows |
 | Account deletion | `delete_account()` RPC | Cascades to all user data (App Store requirement) |
 | Plan replace | `replace_program()` RPC | Atomic; app falls back if migration 2 is not applied |
+| Workout save | `save_workout()` RPC (migration 4) | Atomic and retry-safe (client id); server sets the finish time |
+| Abuse limits | `private.rate_limits` + triggers (migration 4) | Per-user insert limits and size caps; food search 20/min, 500/day |
 | Food search | `supabase/functions/food` | USDA FoodData Central + Open Food Facts merged, key stays server-side, 30-day cache. App falls back to Open Food Facts directly if not deployed |
 | Beta metric | `select * from beta_week4_metric();` | Admin only (SQL Editor); week-4 retention from the PRD |
 | Analytics | `events` table | Insert-only from the app |
@@ -52,7 +54,9 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 
 ## Checks
 
-`npm run typecheck`, `npm run lint`, `npm test`. GitHub Actions runs all three plus `deno check` on the food function for every push.
+`npm run typecheck`, `npm run lint`, `npm test`, `npm run test:db` (migrations + database security tests on an in-memory Postgres).
+GitHub Actions runs all of them, a production `npm audit` gate, and `deno check` on the food function for every push.
+Security notes and the production checklist: [SECURITY.md](SECURITY.md).
 
 ## Phone sign-in (optional)
 

@@ -171,9 +171,29 @@ export async function bestWeight(exerciseId: string): Promise<number | null> {
 
 export type DraftSet = { exerciseId: string; setIndex: number; weight: number; reps: number; rir: number | null; overridden: boolean };
 
+/** Random v4 UUID (idempotency key; not a secret). */
+export const uuid = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+  const r = (Math.random() * 16) | 0;
+  return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+});
+
 export async function saveWorkout(w: {
+  clientId?: string; // stable per workout: a retried save returns the first one instead of duplicating it
   programId: string; dayIndex: number; dayName: string; checkin: CheckIn | null; startedAt: string; sets: DraftSet[]; daysInPlan: number; perfDrops: number;
 }) {
+  // One transaction on the server (migration 4); the multi-step path below only runs until it is applied.
+  if (w.clientId) {
+    const rpc = await supabase.rpc('save_workout', {
+      p_client_id: w.clientId, p_program_id: w.programId, p_day_index: w.dayIndex, p_day_name: w.dayName, p_checkin: w.checkin,
+      p_started_at: w.startedAt, p_perf_drops: w.perfDrops, p_next_day: (w.dayIndex + 1) % w.daysInPlan,
+      p_sets: w.sets.map((x) => ({ exercise_id: x.exerciseId, set_index: x.setIndex, weight: x.weight, reps: x.reps, rir: x.rir, overridden: x.overridden })),
+    });
+    if (!rpc.error) {
+      track('workout_finished', { sets: w.sets.length, checkin: !!w.checkin });
+      return;
+    }
+    if (rpc.error.code !== 'PGRST202') throw rpc.error; // PGRST202 = function not found
+  }
   const workout = must(await supabase.from('workouts').insert({
     program_id: w.programId, day_index: w.dayIndex, day_name: w.dayName, checkin: w.checkin, perf_drops: w.perfDrops, started_at: w.startedAt, finished_at: new Date().toISOString(),
   }).select('id').single());

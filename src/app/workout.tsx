@@ -12,7 +12,7 @@ import { cooldown, isMissed } from '@/engine/session.ts';
 import type { CheckIn, Explanation, LoggedSet, PlannedExercise } from '@/engine/types.ts';
 import { saveCoachNotes } from '@/lib/coach';
 import {
-  bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updatePlan, updateProfile, useData, type DraftSet,
+  bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updatePlan, updateProfile, useData, type DraftSet, uuid,
 } from '@/lib/data';
 import { Button, C, Card, Chip, Choice, IconButton, IconTile, Loading, Press, ProgressBar, Reveal, s, Screen, Section, Sheet, Stepper, T } from '@/ui';
 import { alert, attempt } from '@/lib/alert';
@@ -30,7 +30,7 @@ type Item = {
   changed: boolean;
   sets: Row[];
 };
-type Draft = { userId: string; dayIndex: number; startedAt: string; checkin: CheckIn | null; items: Item[] };
+type Draft = { userId: string; clientId?: string; dayIndex: number; startedAt: string; checkin: CheckIn | null; items: Item[] };
 type Summary = {
   sets: number;
   prs: string[];
@@ -131,7 +131,7 @@ export default function Workout() {
     }
     try {
       const items = await Promise.all(day.exercises.map((p) => buildItem(p, p.exerciseId, badDay)));
-      setDraft({ userId: session!.user.id, dayIndex, startedAt: new Date().toISOString(), checkin: c, items });
+      setDraft({ userId: session!.user.id, clientId: uuid(), dayIndex, startedAt: new Date().toISOString(), checkin: c, items });
     } catch {
       alert('Could not load your history', 'Check your connection and try again.');
     }
@@ -254,6 +254,7 @@ export default function Workout() {
     setBusy(true);
     try {
       await saveWorkout({
+        clientId: d.clientId ?? uuid(),
         programId: program!.id, dayIndex: d.dayIndex, dayName: day.name, checkin: d.checkin, startedAt: d.startedAt,
         sets, daysInPlan: nDays, perfDrops,
       });

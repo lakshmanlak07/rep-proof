@@ -122,9 +122,24 @@ const CORS = {
 };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: CORS });
 
+const PUBLISHABLE = Deno.env.get('SUPABASE_ANON_KEY') ?? JSON.parse(Deno.env.get('SUPABASE_PUBLISHABLE_KEYS') ?? '{}').default;
+
+/** Per-user allowance (migration 4). Runs as the caller, so anonymous requests are refused. */
+async function allowed(req: Request): Promise<boolean> {
+  const auth = req.headers.get('Authorization');
+  if (!auth) return false;
+  const asUser = createClient(Deno.env.get('SUPABASE_URL')!, PUBLISHABLE, { global: { headers: { Authorization: auth } } });
+  const { data, error } = await asUser.rpc('food_search_allowed');
+  if (error) return error.code === 'PGRST202'; // migration 4 not applied yet: no limiter to ask
+  return data === true;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
-  const { query, upc } = await req.json().catch(() => ({}));
+  if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+  if (!(await allowed(req))) return json({ error: 'too many requests' }, 429);
+  const body = await req.json().catch(() => null);
+  const { query, upc } = body && typeof body === 'object' ? body : ({} as Record<string, unknown>);
   const q = String(query ?? '').trim().toLowerCase().slice(0, 100);
   const code = String(upc ?? '').replace(/\D/g, '').slice(0, 14);
   if (!q && !code) return json({ error: 'query or upc required' }, 400);

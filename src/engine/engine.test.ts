@@ -376,3 +376,18 @@ test('exercise library: 200+, unique, complete, staples cover every muscle', asy
     for (const m of MUSCLES)
       assert.ok(EXERCISES.some((e) => e.staple !== false && e.muscle === m && e.equipment.every((q) => SETUP_EQUIPMENT[setup].includes(q))), `${setup}: no staple for ${m}`);
 });
+
+test('security: user-facing errors never echo server text', async () => {
+  const { friendlyError, friendlyAuthError } = await import('../lib/errors.ts');
+  const leak = 'duplicate key value violates unique constraint "workouts_client_id" on table public.workouts';
+  for (const msg of [friendlyError({ code: '23505', message: leak }), friendlyError(new Error(leak)), friendlyError(undefined)]) {
+    assert.ok(!/constraint|table|public\.|key value/i.test(msg), msg);
+  }
+  assert.match(friendlyError({ code: 'P0001', message: 'rate limit exceeded' }), /too often/);
+  // no account-existence hint on sign-up or sign-in failures
+  const taken = friendlyAuthError({ message: 'User already registered' });
+  const wrong = friendlyAuthError({ message: 'Invalid login credentials' });
+  assert.equal(taken, wrong);
+  assert.ok(!/already|registered|exists/i.test(taken));
+  assert.match(friendlyAuthError({ message: 'Too many requests', status: 429 }), /Too many attempts/);
+});

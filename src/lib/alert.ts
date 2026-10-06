@@ -1,5 +1,9 @@
 import { Alert, Platform, type AlertButton } from 'react-native';
 
+import { friendlyError } from './errors';
+
+export { friendlyAuthError, friendlyError } from './errors';
+
 /**
  * Alert.alert on iOS/Android. On web (react-native-web has no Alert), falls back to
  * window.alert/confirm: each non-cancel button is offered in order and the first "OK" wins.
@@ -23,8 +27,8 @@ export async function attempt(fn: () => Promise<unknown>, what = 'save that'): P
   try {
     await fn();
     return true;
-  } catch {
-    alert(`Could not ${what}`, 'Check your connection and try again.');
+  } catch (e) {
+    alert(`Could not ${what}`, friendlyError(e));
     return false;
   }
 }

@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { useData } from '@/lib/data';
 import { DISCLAIMER } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
-import { alert } from '@/lib/alert';
+import { alert, friendlyError } from '@/lib/alert';
 import { Button, Card, Screen, T } from '@/ui';
 
 // Everything this device keeps between sessions (see workout.tsx and lib/pending.ts).
@@ -20,7 +20,7 @@ export default function Settings() {
       {
         text: 'Delete', style: 'destructive', onPress: async () => {
           const { error } = await supabase.rpc('delete_account');
-          if (error) return alert('Could not delete', error.message);
+          if (error) return alert('Could not delete', friendlyError(error));
           clearLocal();
           // The account no longer exists server-side, so only clear this device's session.
           await supabase.auth.signOut({ scope: 'local' });
