@@ -18,7 +18,12 @@ are for usability only.
 
 | Area | Control | Where | Tested by |
 | --- | --- | --- | --- |
-| Accounts | Supabase Auth (email + password; phone code optional). JWTs are verified by the API gateway; forged, unsigned and expired tokens are refused. | Supabase | `npm run test:live` |
+| Accounts | Supabase Auth (email + password; phone code optional). JWTs are verified by the API gateway; forged, unsigned and expired tokens are refused. Wrong passwords are rate limited per IP (stopped after 30 in 5 minutes). | Supabase | `npm run test:live` |
+| Account enumeration | Wrong password and unknown email get the same answer; reset and resend answer the same for every address; sign-up shows the same "enter the code" step for new and existing addresses. | `src/lib/authFlow.ts`, `src/lib/errors.ts` | `npm test`, `npm run test:live` (+ `test:live:auth` with a test account) |
+| Password reset | 6-10 digit code from the email, typed into the app (no link carries a session). The recovery session lives in a throwaway in-memory client, never on the device; after the new password is set, every session of the account is ended and the user signs in again. Wrong or expired codes get one generic message; resend has a 60 s cooldown on top of Supabase's per-address limit. | `src/app/forgot-password.tsx` | `npm test`, `npm run test:live`, browser test |
+| Email confirmation | Same code flow after sign-up (and when an unconfirmed account signs in with the right password), with resend + cooldown. Works whether confirmation is on or off. | `src/app/sign-in.tsx` | `npm test` |
+| CAPTCHA | Cloudflare Turnstile in a locked-down WebView (fixed page, validated site key, validated messages, navigation limited to Cloudflare) sends a single-use token with every request Supabase checks: sign-up, password sign-in, phone code, reset, resend. Without a site key nothing is shown or sent; if the check fails the user gets a retry button. | `src/auth-ui.tsx`, `src/lib/captcha.ts` | `npm test` (incl. a scan that every gated call sends a token), `npm run test:live` |
+| Sessions | Sessions only come from the app's own sign-in calls: never from links (`detectSessionInUrl: false`, auth parameters stripped from incoming links), so a crafted link cannot plant someone else's session. Sign-out ends the session everywhere (refresh tokens revoked). | `src/lib/supabase.ts`, `src/lib/links.ts` | `npm test`, `npm run test:live:auth` |
 | Data isolation | Row-level security on every table: a user reads and writes only rows with their own `user_id`; workouts and sets must point at the user's own program and workout. | migrations 1-2 | `npm run test:db` |
 | Least privilege | Anonymous role has no table privileges. Users cannot TRUNCATE, cannot read analytics, feedback, the food cache or rate-limit counters, and cannot edit saved workouts or sets. | migration 4 | `npm run test:db` |
 | Privilege escalation | `plan_tier` is not writable by users (column grants). Admin metric and rate limiter are not callable by users. A forged `role` claim changes nothing. | migrations 2, 4 | `npm run test:db` |
@@ -28,7 +33,7 @@ are for usability only.
 | Error messages | Users see fixed messages only: no table, column or constraint names, no stack traces, and sign-in/sign-up errors do not reveal whether an account exists. Full errors are logged in development builds only. | `src/lib/errors.ts` | `npm test` |
 | Session on the device | Stored in the iOS Keychain / Android Keystore (`expo-secure-store`, this device only), split into chunks under the platform size limit. Sessions saved by older versions are moved over once and erased from plain storage. A reinstall does not inherit an old Keychain session. | `src/lib/chunked.ts`, `src/lib/supabase.ts` | `npm test` |
 | Local health data | The unsaved workout (with check-in answers) is erased whenever the session ends, however it ends. | `src/lib/supabase.ts` | code review |
-| Deep links | Links that do not decode cleanly or are over 2 KB go to the home screen instead of the router (blocks the `decode-uri-component` slow path). | `src/app/+native-intent.tsx` | `npm test` |
+| Deep links | Links that do not decode cleanly, are over 2 KB, or carry auth tokens or codes go to the home screen instead of the router (blocks the `decode-uri-component` slow path and session fixation). | `src/app/+native-intent.tsx` | `npm test` |
 | Analytics | Events carry no health answers: check-in events record only that a check-in happened; pain reports are not sent. | `src/app/workout.tsx` | `npm test` (source scan) |
 | Secrets | Only the Supabase URL and publishable key ship in the app. The service key and USDA key live in Supabase secrets. Repo, full git history and the built bundle are scanned on every push. | `scripts/secret-scan.mjs` | CI |
 | CI | Read-only token, no secrets, actions pinned to commit SHAs (kept current by Dependabot), production bundle build, critical `npm audit` gate. | `.github/workflows/ci.yml` | GitHub Actions |
@@ -57,6 +62,8 @@ are for usability only.
 | Usage events (button-level actions; no free text, no health answers) | `events` | Project owner only | Delete account |
 | Food search text and barcodes | Open Food Facts (from the phone, and from the food function) and USDA (from the food function). Cached by query, not by user | Those services | Cache entries expire after 30 days |
 | Login session | iOS Keychain / Android Keystore | This app on this device | Sign-out / delete account |
+| Security check (when CAPTCHA is on) | Cloudflare Turnstile sees the device's IP address and browser signals during sign-in, sign-up and reset | Cloudflare | Cloudflare's retention |
+| Emails with codes (when custom SMTP is on) | Your email provider sends them | The provider | Provider's retention |
 | Coach notes (training decisions), survey and waitlist flags | Phone storage (SQLite), per user | Anyone with the unlocked phone | Uninstall |
 
 Nothing is sent to third-party analytics, crash reporting or advertising services. Logs: the food function

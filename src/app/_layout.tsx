@@ -21,6 +21,7 @@ function Routes() {
         <Stack.Screen name="age" />
         <Stack.Screen name="disclaimer" />
         <Stack.Screen name="sign-in" />
+        <Stack.Screen name="forgot-password" />
       </Stack.Protected>
       <Stack.Protected guard={!!session && !ready}>
         <Stack.Screen name="onboarding" />

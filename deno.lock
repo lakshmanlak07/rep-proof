@@ -89,6 +89,7 @@
         "npm:react-native-safe-area-context@5.7",
         "npm:react-native-screens@4.26",
         "npm:react-native-web@0.21",
+        "npm:react-native-webview@13.16.1",
         "npm:react-native-worklets@0.10.1",
         "npm:react-native@0.86.3",
         "npm:react@19.2.3",

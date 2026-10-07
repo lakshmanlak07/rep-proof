@@ -50,7 +50,7 @@ try {
   for (const line of readFileSync('.env', 'utf8').split(/\r?\n/)) {
     const name = line.split('=')[0].trim();
     if (!name || name.startsWith('#')) continue;
-    if (!['EXPO_PUBLIC_SUPABASE_URL', 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY'].includes(name)) hits.push(`.env: unexpected variable ${name} (server secrets belong in Supabase secrets)`);
+    if (!['EXPO_PUBLIC_SUPABASE_URL', 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'EXPO_PUBLIC_TURNSTILE_SITE_KEY'].includes(name)) hits.push(`.env: unexpected variable ${name} (server secrets belong in Supabase secrets)`);
     if (name === 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY' && !/=\s*(sb_publishable_|eyJ)/.test(line)) hits.push('.env: publishable key has an unexpected format');
   }
 } catch {

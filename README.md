@@ -62,9 +62,10 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 | `npm test` | Engine rules and app-side security (errors, deep links, session storage, food requests, analytics) |
 | `npm run test:db` | All migrations + 77 database security checks on an in-memory Postgres, then 15 deliberately weakened controls that must be caught |
 | `npm run scan:secrets -- --history` | No secrets in tracked files or git history (add a bundle folder to scan a build) |
-| `npm run test:live` | Probes the real project as an outsider (no account, forged tokens); read-only |
+| `npm run test:live` | Probes the real project as an outsider: no account, forged tokens, enumeration via sign-in/reset/resend, guessed codes, CAPTCHA state. Changes nothing (`-- --brute` adds a brute-force check that rate-limits this computer for a few minutes) |
+| `npm run test:live:auth` | With a throwaway account in `.env.local`: enumeration against a real account, refresh-token replay and reuse detection, sign-out revocation |
 
-GitHub Actions runs everything except `test:live`, plus a production Android bundle build, a critical `npm audit` gate
+GitHub Actions runs everything except the two live scripts, plus a production Android bundle build, a critical `npm audit` gate
 and `deno check` on the food function, on every push. Security model: [SECURITY.md](SECURITY.md); launch list:
 [PRODUCTION_SECURITY_CHECKLIST.md](PRODUCTION_SECURITY_CHECKLIST.md).
 

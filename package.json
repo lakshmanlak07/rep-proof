@@ -31,6 +31,7 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-web": "~0.21.0",
+    "react-native-webview": "13.16.1",
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
@@ -47,11 +48,12 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --test src/engine/engine.test.ts src/lib/security.test.ts",
+    "test": "node --test src/engine/engine.test.ts src/lib/security.test.ts src/lib/auth.test.ts",
     "typecheck": "tsc --noEmit",
     "test:db": "node supabase/tests/run.mjs",
     "test:live": "node supabase/tests/live_probe.mjs",
-    "scan:secrets": "node scripts/secret-scan.mjs"
+    "scan:secrets": "node scripts/secret-scan.mjs",
+    "test:live:auth": "node supabase/tests/live_auth.mjs"
   },
   "private": true
 }

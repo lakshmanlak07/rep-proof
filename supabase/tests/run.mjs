@@ -63,6 +63,27 @@ const base = await suite();
 console.log(base.notices.join('\n'));
 if (!base.ok) { console.log('TEST ERROR:', base.error); process.exit(1); }
 
+// Migration 4 must apply on a database that already holds rows breaking its new limits (the beta project).
+{
+  const db = new PGlite();
+  await db.exec(stub);
+  for (const [, sql] of migrations.filter(([f]) => f < '20261006')) await db.exec(sql);
+  await db.exec(`
+    insert into auth.users (id) values ('dddddddd-0000-4000-8000-00000000000d');
+    insert into public.food_logs (user_id, logged_on, meal, fdc_id, name, grams, kcal, protein, fat, carbs)
+      values ('dddddddd-0000-4000-8000-00000000000d', current_date, 'lunch', 0, repeat('n', 300), 100, 1, 1, 1, 1);
+    insert into public.events (user_id, name, props) values ('dddddddd-0000-4000-8000-00000000000d', 'old', jsonb_build_object('x', repeat('a', 3000)));`);
+  try {
+    for (const [f, sql] of migrations.filter(([f]) => f >= '20261006')) await db.exec(sql);
+    console.log('PASS migration 4 applies over older rows that exceed its new limits');
+  } catch (e) {
+    console.log('TEST ERROR: migration 4 fails on existing data:', e.message);
+    process.exit(1);
+  } finally {
+    await db.close();
+  }
+}
+
 let missed = 0;
 for (const [name, sql] of Object.entries(MUTATIONS)) {
   const r = await suite(sql);

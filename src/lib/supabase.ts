@@ -33,3 +33,12 @@ AppState.addEventListener('change', (state) => {
   if (state === 'active') supabase.auth.startAutoRefresh();
   else supabase.auth.stopAutoRefresh();
 });
+
+/**
+ * Throwaway in-memory client for password reset: the recovery session never touches device storage and
+ * never signs the app in. After the new password is set, every session of that account is ended
+ * (including any an attacker held) and the user signs in again with the new password.
+ */
+export const recoveryClient = () => createClient(process.env.EXPO_PUBLIC_SUPABASE_URL!, process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'repproof-recovery' },
+});

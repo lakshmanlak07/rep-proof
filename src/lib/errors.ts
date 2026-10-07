@@ -20,8 +20,12 @@ export function friendlyError(e: unknown): string {
 export function friendlyAuthError(e: { message?: string; code?: string; status?: number }): string {
   logDev(e);
   const m = `${e.code ?? ''} ${e.message ?? ''}`;
+  if (/captcha/i.test(m)) return 'The security check failed or expired. Wait for it to finish (or tap "Try the check again"), then retry.';
+  if (/over_email_send_rate_limit|only request this after/i.test(m)) return 'Please wait a minute before asking for another email.';
   if (/rate|too many|over_.*limit/i.test(m) || e.status === 429) return 'Too many attempts. Wait a few minutes and try again.';
-  if (/weak|password.*(short|length|characters)/i.test(m)) return 'Choose a stronger password: at least 8 characters, not a common one.';
+  if (/otp_expired|expired or is invalid|invalid.*(otp|token)/i.test(m)) return 'That code is wrong or expired. Check it, or request a new one.';
+  if (/same_password|different from the old/i.test(m)) return 'Choose a password you have not used for this account before.';
+  if (/weak|password.*(short|length|characters)/i.test(m)) return 'Choose a stronger password: at least 10 characters with letters and numbers, not a common one.';
   if (/invalid.*(email|format)|email_address_invalid/i.test(m)) return 'Enter a valid email address.';
   if (/signup.*disabled/i.test(m)) return 'Sign-ups are closed right now.';
   return 'Could not sign you in with those details. Check them, or create an account if you are new.';

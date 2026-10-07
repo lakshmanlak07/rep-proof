@@ -78,5 +78,45 @@ for (const [name, token] of Object.entries(TOKENS)) {
   report(r.status === 401 || r.status === 403, 'migration 4 applied (anonymous role has no table privileges)', `HTTP ${r.status}`);
 }
 
+// ── Auth endpoints, as an outsider. Uses a made-up address at example.com (reserved: no account, no mail). ──
+const nobody = `rp-probe-${Date.now()}@example.com`;
+const authJson = async (path, body) => {
+  const r = await call(`/auth/v1/${path}`, { method: 'POST', body });
+  let j = {};
+  try { j = JSON.parse(r.text); } catch { /* not JSON */ }
+  return { status: r.status, code: j.error_code ?? j.code, text: r.text };
+};
+const leaks = (t) => /not found|no user|does not exist|not registered|unknown user/i.test(t);
+
+// CAPTCHA: off until the rollout's last step; when on, missing and invalid tokens must both be refused.
+const noToken = await authJson('token?grant_type=password', { email: nobody, password: 'Wrong-password-1' });
+const badToken = await authJson('token?grant_type=password', { email: nobody, password: 'Wrong-password-1', gotrue_meta_security: { captcha_token: 'invalid-token' } });
+const captchaOn = noToken.code === 'captcha_failed';
+if (captchaOn) {
+  report(true, 'CAPTCHA enforced: missing token refused', `HTTP ${noToken.status}`);
+  report(badToken.code === 'captcha_failed', 'CAPTCHA enforced: invalid token refused', `HTTP ${badToken.status} ${badToken.code}`);
+} else {
+  console.log(`info CAPTCHA is off in the dashboard (expected until rollout step 4); tokens are ignored (HTTP ${badToken.status} ${badToken.code})`);
+  report(noToken.code === 'invalid_credentials' && !leaks(noToken.text), 'unknown email gets the same "invalid credentials" answer as a wrong password', `HTTP ${noToken.status} ${noToken.code}`);
+  const rec = await authJson('recover', { email: nobody });
+  report(rec.status === 200 && !leaks(rec.text), 'password reset for an unknown email looks like success (no enumeration)', `HTTP ${rec.status}`);
+  const res = await authJson('resend', { type: 'signup', email: nobody });
+  report(!leaks(res.text), 'resend for an unknown email does not say the account is missing', `HTTP ${res.status} ${res.code ?? ''}`);
+}
+for (const type of ['recovery', 'signup']) {
+  const v = await authJson('verify', { type, email: nobody, token: '123456' });
+  report(v.status >= 400 && v.code === 'otp_expired' && !leaks(v.text), `guessed ${type} code refused with a generic answer`, `HTTP ${v.status} ${v.code}`);
+}
+
+// Brute force (opt-in: it rate-limits this computer's sign-ins for a few minutes): `npm run test:live -- --brute`.
+if (process.argv.includes('--brute') && !captchaOn) {
+  let limitedAt = 0;
+  for (let i = 1; i <= 60 && !limitedAt; i++) {
+    const r = await authJson('token?grant_type=password', { email: nobody, password: `Wrong-password-${i}` });
+    if (r.status === 429) limitedAt = i;
+  }
+  report(limitedAt > 0, 'repeated wrong passwords from one IP are rate limited', limitedAt ? `limited after ${limitedAt} attempts` : 'not limited after 60');
+}
+
 console.log(failed ? `${failed} check(s) failed` : 'All live probes passed.');
 process.exit(failed ? 1 : 0);
