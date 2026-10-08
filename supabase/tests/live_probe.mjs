@@ -56,6 +56,10 @@ for (const fn of ['delete_account', 'beta_week4_metric', 'food_search_allowed'])
 {
   const r = await call('/functions/v1/food', { method: 'POST', body: { query: 'oats' } });
   report(r.status === 401 || r.status === 404, 'food function without a user token', `HTTP ${r.status}${r.status === 404 ? ', not deployed' : ''}`);
+  // The gateway accepts the public key as an anonymous caller; the function must still require a user.
+  const p = await call('/functions/v1/food', { method: 'POST', body: { query: 'oats' }, token: KEY });
+  report(p.status === 401 || p.status === 404, 'food function with only the public key', `HTTP ${p.status}`);
+  report(!/api[_-]?key|nal\.usda\.gov|FDC_API|stack|at \w+ \(/i.test(r.text + p.text), 'food function refusals leak no key, URL or stack');
 }
 
 // Attacker E: forged, unsigned and expired tokens.

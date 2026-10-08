@@ -133,15 +133,25 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 
 const PUBLISHABLE = Deno.env.get('SUPABASE_ANON_KEY') ?? JSON.parse(Deno.env.get('SUPABASE_PUBLISHABLE_KEYS') ?? '{}').default;
 
-/** Per-user allowance (migration 4). Runs as the caller, so anonymous requests are refused. */
-async function allowed(req: Request): Promise<boolean> {
+/**
+ * Per-user allowance (migration 4), asked as the caller. The gateway also lets the public key through as an
+ * anonymous caller, so a signed-in user is required here too. Fails closed: if the limiter can't answer,
+ * nothing is searched.
+ */
+async function allowance(req: Request): Promise<'ok' | 'unauthorized' | 'limited' | 'unavailable'> {
   const auth = req.headers.get('Authorization');
-  if (!auth) return false;
+  if (!auth) return 'unauthorized';
   const asUser = createClient(Deno.env.get('SUPABASE_URL')!, PUBLISHABLE, { global: { headers: { Authorization: auth } } });
   const { data, error } = await asUser.rpc('food_search_allowed');
-  if (error) return error.code === 'PGRST202'; // migration 4 not applied yet: no limiter to ask
-  return data === true;
+  if (error) return error.code === '42501' || error.code?.startsWith('PGRST3') ? 'unauthorized' : 'unavailable';
+  return data === true ? 'ok' : 'limited';
 }
+
+const REFUSED = {
+  unauthorized: [401, 'sign in to search foods'],
+  limited: [429, 'too many requests'],
+  unavailable: [503, 'food search unavailable'],
+} as const;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -150,7 +160,8 @@ Deno.serve(async (req) => {
     if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return json({ error: 'request too large' }, 413);
     const parsed = parseRequest(await req.text());
     if ('error' in parsed) return json({ error: parsed.error }, parsed.status);
-    if (!(await allowed(req))) return json({ error: 'too many requests' }, 429);
+    const allow = await allowance(req);
+    if (allow !== 'ok') return json({ error: REFUSED[allow][1] }, REFUSED[allow][0]);
 
     const cached = await admin.from('food_cache').select('results, fetched_at').eq('key', parsed.key).maybeSingle();
     if (cached.data && Date.now() - new Date(cached.data.fetched_at).getTime() < CACHE_DAYS * 864e5) {
