@@ -4,8 +4,9 @@ import { Pressable, View } from 'react-native';
 
 import { NUTRITION_CARDS, targets, type Phase } from '@/engine/nutrition.ts';
 import { track, updateProfile, useData } from '@/lib/data';
-import { dayLogs, deleteLog, MEALS, saveMeal, sum, type FoodLog, type Meal } from '@/lib/food';
-import { Button, C, Card, Choice, s, Screen, T } from '@/ui';
+import { dayLogs, deleteLog, MEALS, saveMeal, sum, updateLogGrams, type FoodLog, type Meal } from '@/lib/food';
+import { toGrams } from '@/lib/portion';
+import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
 import { alert, attempt } from '@/lib/alert';
 import { Why, WhyBody } from '@/why';
 
@@ -14,8 +15,12 @@ const MEAL_NAMES: Record<Meal, string> = { breakfast: 'Breakfast', lunch: 'Lunch
 export default function Nutrition() {
   const { profile, refresh } = useData();
   const [logs, setLogs] = useState<FoodLog[]>([]);
+  const [editing, setEditing] = useState<{ id: string; grams: string } | null>(null);
+  const [failed, setFailed] = useState(false);
 
-  const load = useCallback(() => { dayLogs().then(setLogs).catch(() => {}); }, []);
+  const load = useCallback(() => {
+    dayLogs().then((l) => { setLogs(l); setFailed(false); }).catch(() => setFailed(true));
+  }, []);
   useFocusEffect(load);
 
   if (!profile) return null;
@@ -34,8 +39,16 @@ export default function Nutrition() {
   function remove(l: FoodLog) {
     alert('Remove this food?', l.name, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => attempt(() => deleteLog(l.id), 'remove that food').then(load) },
+      { text: 'Remove', style: 'destructive', onPress: () => attempt(() => deleteLog(l.id), 'remove that food').then(() => { setEditing(null); load(); }) },
     ]);
+  }
+
+  async function saveAmount(l: FoodLog, text: string) {
+    const g = toGrams(Number(text), 'g', null);
+    if (!g) return alert('Check the amount', 'Enter grams between 1 and 10000.');
+    if (!(await attempt(() => updateLogGrams(l, g), 'change that food'))) return;
+    setEditing(null);
+    load();
   }
 
   async function save(meal: Meal, items: FoodLog[]) {
@@ -65,6 +78,7 @@ export default function Nutrition() {
           <T muted size="sm">TODAY VS TARGET</T>
           <Why e={t.explanations[0]} />
         </View>
+        {failed ? <T style={{ color: C.danger }} size="sm">{"Could not load today's foods. Switch tabs and come back to retry."}</T> : null}
         {bar('Calories', eaten.kcal, t.calories, 'kcal')}
         {bar('Protein', eaten.protein, t.protein, 'g')}
         {bar('Fat', eaten.fat, t.fat, 'g')}
@@ -79,10 +93,20 @@ export default function Nutrition() {
               <T bold>{MEAL_NAMES[meal]}</T>
               <T muted size="sm">{Math.round(sum(items).kcal)} kcal</T>
             </View>
-            {items.map((l) => (
-              <Pressable key={l.id} onLongPress={() => remove(l)} accessibilityHint="Long press to remove" style={[s.row, { justifyContent: 'space-between', minHeight: 32 }]}>
+            {items.map((l) => editing?.id === l.id ? (
+              <View key={l.id} style={{ gap: 8 }}>
+                <T size="sm">{l.name}</T>
+                <Field label="Amount (g)" keyboardType="decimal-pad" value={editing.grams} onChangeText={(g) => setEditing({ id: l.id, grams: g })} />
+                <View style={s.row}>
+                  <Button kind="primary" title="Save" style={{ flex: 1 }} onPress={() => saveAmount(l, editing.grams)} />
+                  <Button kind="danger" title="Remove" onPress={() => remove(l)} />
+                  <Button kind="ghost" title="Cancel" onPress={() => setEditing(null)} />
+                </View>
+              </View>
+            ) : (
+              <Pressable key={l.id} onPress={() => setEditing({ id: l.id, grams: String(l.grams) })} onLongPress={() => remove(l)} accessibilityRole="button" accessibilityHint="Tap to change the amount or remove" style={[s.row, { justifyContent: 'space-between', minHeight: 32 }]}>
                 <T muted style={{ flex: 1 }} size="sm">{l.name} · {l.grams} g</T>
-                <T size="sm">{Math.round(l.kcal)} kcal</T>
+                <T size="sm">{Math.round(l.kcal)} kcal · {Math.round(Number(l.protein))} g P</T>
               </Pressable>
             ))}
             <View style={s.row}>
@@ -92,13 +116,14 @@ export default function Nutrition() {
           </Card>
         );
       })}
-      {logs.length ? <T muted size="sm">Long-press a food to remove it.</T> : null}
+      {logs.length ? <T muted size="sm">Tap a food to change the amount or remove it.</T> : null}
 
-      <T bold>Phase</T>
+      <T bold>Goal</T>
       <Choice value={profile.nutrition_phase} onChange={setPhase} options={[
-        { value: 'gain', label: 'Gain', hint: 'About 10% above maintenance' },
-        { value: 'maintain', label: 'Maintain' },
-        { value: 'cut', label: 'Cut', hint: 'About 20% below maintenance' },
+        { value: 'gain', label: 'Muscle gain', hint: 'About 10% above maintenance' },
+        { value: 'maintain', label: 'Maintenance' },
+        { value: 'cut', label: 'Fat loss', hint: 'About 20% below maintenance' },
+        { value: 'recomp', label: 'Recomp', hint: 'Maintenance calories, train hard; slower change' },
       ]} />
 
       <T size="lg">How targets are set</T>

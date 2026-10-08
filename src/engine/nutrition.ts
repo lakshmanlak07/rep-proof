@@ -1,6 +1,6 @@
 import type { Explanation, Unit } from './types.ts';
 
-export type Phase = 'gain' | 'maintain' | 'cut';
+export type Phase = 'gain' | 'maintain' | 'cut' | 'recomp';
 export type NutritionInput = {
   bodyweight: number; // in `unit`
   unit: Unit;
@@ -13,7 +13,8 @@ export type NutritionInput = {
 export type Targets = { calories: number; protein: number; fat: number; carbs: number; explanations: Explanation[] };
 
 const LB_PER_KG = 2.20462;
-const PHASE_FACTOR: Record<Phase, number> = { gain: 1.1, maintain: 1, cut: 0.8 };
+const PHASE_FACTOR: Record<Phase, number> = { gain: 1.1, maintain: 1, cut: 0.8, recomp: 1 };
+const PHASE_TEXT: Record<Phase, string> = { maintain: '', gain: ', plus 10% to gain', cut: ', minus 20% to cut', recomp: ', kept at maintenance for a recomp' };
 
 export function targets(i: NutritionInput): Targets {
   const kg = i.unit === 'kg' ? i.bodyweight : i.bodyweight / LB_PER_KG;
@@ -28,7 +29,7 @@ export function targets(i: NutritionInput): Targets {
 
   const explanations: Explanation[] = [
     {
-      text: `About ${calories} kcal a day: your estimated resting energy (Mifflin-St Jeor equation from weight, height, age${i.sex ? ' and sex' : ''}) × ${activity} for ${i.days} training days a week${i.phase === 'maintain' ? '' : i.phase === 'gain' ? ', plus 10% to gain' : ', minus 20% to cut'}. The equation explains about 71% of differences between people, so treat it as a starting point and adjust to your weight trend.`,
+      text: `About ${calories} kcal a day: your estimated resting energy (Mifflin-St Jeor equation from weight, height, age${i.sex ? ' and sex' : ''}) × ${activity} for ${i.days} training days a week${PHASE_TEXT[i.phase]}. The equation explains about 71% of differences between people, so treat it as a starting point and adjust to your weight trend.`,
       label: 'principle',
       refIds: ['mifflin'],
     },
@@ -43,10 +44,10 @@ export function targets(i: NutritionInput): Targets {
       refIds: [],
     },
   ];
-  if (i.phase !== 'maintain') {
-    explanations.push(i.phase === 'gain'
-      ? { text: 'The +10% surplus is our default. No study has found the best surplus size for building muscle.', label: 'rule', refIds: ['surplus'] }
-      : { text: 'The -20% deficit is our default, not a study finding. Lifting while you cut helps keep muscle; keep training hard.', label: 'rule', refIds: [] });
+  if (i.phase === 'gain') explanations.push({ text: 'The +10% surplus is our default. No study has found the best surplus size for building muscle.', label: 'rule', refIds: ['surplus'] });
+  if (i.phase === 'cut') explanations.push({ text: 'The -20% deficit is our default, not a study finding. Lifting while you cut helps keep muscle; keep training hard.', label: 'rule', refIds: [] });
+  if (i.phase === 'recomp') {
+    explanations.push({ text: 'Recomp means eating at about maintenance with the same protein target while training hard, aiming to add muscle and lose fat slowly at the same time. It is our option, not a study-tested prescription: expect slower change than a dedicated gain or cut, and judge it by your gym progress and weight trend over several weeks.', label: 'rule', refIds: [] });
   }
   if (!i.sex) {
     explanations.push({ text: 'You chose not to give your sex, so the calorie estimate uses the midpoint of the male and female equations.', label: 'rule', refIds: [] });
@@ -65,5 +66,10 @@ export const NUTRITION_CARDS: { title: string; body: string; explanation: Explan
     title: 'Gaining vs cutting',
     body: 'Eating a bit above maintenance supports muscle gain; eating below it loses fat. Change slowly: check your average bodyweight over 2 to 3 weeks before adjusting calories again.',
     explanation: { text: 'The phase percentages (+10% to gain, -20% to cut) and the 2-3 week check are RepProof defaults. A review found the best surplus size for muscle gain is unknown.', label: 'rule', refIds: ['surplus'] },
+  },
+  {
+    title: 'Calories from watches and trackers',
+    body: 'Your target already counts your training days, so RepProof does not add back calories burned from a watch, tracker or gym machine. If your weight trend drifts from your goal, adjust the target instead.',
+    explanation: { text: 'Not adding exercise calories on top of a target that already includes training is our rule, to avoid counting the same activity twice.', label: 'rule', refIds: [] },
   },
 ];

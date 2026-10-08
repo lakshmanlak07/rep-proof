@@ -9,7 +9,8 @@ import {
   FoodError, addLogs, byBarcode, deleteSavedMeal, fdcIdOf, forGrams, recentFoods, savedMeals, searchFoods, type Food, type Meal, type SavedMeal,
 } from '@/lib/food';
 import { leave } from '@/lib/nav';
-import { Button, C, Card, Field, s, Screen, T } from '@/ui';
+import { sourceLabel, toGrams, type PortionUnit } from '@/lib/portion';
+import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
 
 export default function AddFood() {
   const { meal = 'snack' } = useLocalSearchParams<{ meal?: Meal }>();
@@ -18,7 +19,9 @@ export default function AddFood() {
   const [notFound, setNotFound] = useState('');
   const [busy, setBusy] = useState(false);
   const [picked, setPicked] = useState<Food | null>(null);
-  const [grams, setGrams] = useState('100');
+  const [amount, setAmount] = useState('100');
+  const [unit, setUnit] = useState<PortionUnit>('g');
+  const [notice, setNotice] = useState('');
   const [saved, setSaved] = useState<SavedMeal[]>([]);
   const [recent, setRecent] = useState<Food[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -29,11 +32,13 @@ export default function AddFood() {
     recentFoods().then(setRecent).catch(() => {});
   }, []);
 
-  async function run(fn: () => Promise<Food[]>, source: 'search' | 'barcode') {
+  async function run(fn: () => Promise<{ foods: Food[]; onlineError?: string | null }>, source: 'search' | 'barcode') {
     setBusy(true);
     setNotFound('');
+    setNotice('');
     try {
-      const foods = await fn();
+      const { foods, onlineError } = await fn();
+      if (onlineError) setNotice(`${onlineError} Showing common foods only.`);
       setResults(foods);
       track('food_search', { source, results: foods.length });
       if (source === 'barcode' && foods.length === 1) pick(foods[0]);
@@ -46,7 +51,8 @@ export default function AddFood() {
 
   function pick(f: Food) {
     setPicked(f);
-    setGrams(String(f.servingGrams ?? 100));
+    setUnit(f.servingGrams ? 'serving' : 'g');
+    setAmount(f.servingGrams ? '1' : '100');
   }
 
   async function log(food: Food, g: number) {
@@ -61,7 +67,8 @@ export default function AddFood() {
     leave();
   }
 
-  const m = picked ? forGrams(picked.per100, Number(grams) || 0) : null;
+  const grams = picked ? toGrams(Number(amount), unit, picked.servingGrams) : null;
+  const m = picked ? forGrams(picked.per100, grams ?? 0) : null;
   const search = () => {
     if (query.trim()) run(() => searchFoods(query.trim()), 'search');
   };
@@ -78,6 +85,7 @@ export default function AddFood() {
       </View>
 
       {busy ? <ActivityIndicator color={C.accent} /> : null}
+      {notice ? <Card><T muted>{notice}</T></Card> : null}
       {notFound ? (
         <Card>
           <T>{notFound}</T>
@@ -88,7 +96,8 @@ export default function AddFood() {
         <Pressable key={`${f.source}-${f.id}-${f.name}`} onPress={() => pick(f)} accessibilityRole="button">
           <Card>
             <T bold>{f.name}</T>
-            <T muted size="sm">{f.brand ? `${f.brand} · ` : ''}{Math.round(f.per100.kcal)} kcal · {Math.round(f.per100.protein * 10) / 10} g protein per 100 g</T>
+            <T muted size="sm">{f.brand && f.source !== 'custom' ? `${f.brand} · ` : ''}{Math.round(f.per100.kcal)} kcal · {Math.round(f.per100.protein * 10) / 10} g protein per 100 g</T>
+            <T muted size="micro">{sourceLabel(f)}</T>
           </Card>
         </Pressable>
       ))}
@@ -119,21 +128,22 @@ export default function AddFood() {
       </>) : null}
 
       <Button kind="ghost" title={"Can't find it? Add a custom food"} onPress={() => setCustom(true)} />
-      <T muted size="sm">Food data: USDA FoodData Central (public domain) and Open Food Facts (ODbL). Check labels; databases can contain errors.</T>
+      <T muted size="sm">Food data: built-in common foods (typical USDA reference values), USDA FoodData Central (public domain) and Open Food Facts (ODbL). Check labels; databases can contain errors.</T>
 
       <Modal visible={!!picked} transparent animationType="slide" onRequestClose={() => setPicked(null)}>
         <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setPicked(null)} />
         {picked && m ? (
           <Card style={sheet}>
             <T size="lg">{picked.name}</T>
-            {picked.brand ? <T muted size="sm">{picked.brand}</T> : null}
-            <Field label="Amount (grams)" keyboardType="decimal-pad" value={grams} onChangeText={setGrams} />
-            <View style={s.row}>
-              {picked.servingGrams ? <Button title={`1 serving (${picked.servingGrams} g)`} onPress={() => setGrams(String(picked.servingGrams))} /> : null}
-              <Button title="100 g" onPress={() => setGrams('100')} />
-            </View>
-            <T>{m.kcal} kcal · {m.protein} g protein · {m.fat} g fat · {m.carbs} g carbs</T>
-            <Button kind="primary" title="Add" disabled={!(Number(grams) > 0 && Number(grams) <= 10000)} onPress={() => log(picked, Number(grams))} />
+            <T muted size="sm">{sourceLabel(picked)}{picked.brand && picked.source !== 'custom' ? ` · ${picked.brand}` : ''}</T>
+            <Choice value={unit} onChange={setUnit} options={[
+              { value: 'g', label: 'Grams' },
+              { value: 'oz', label: 'Ounces' },
+              ...(picked.servingGrams ? [{ value: 'serving' as const, label: 'Servings', hint: `1 serving = ${picked.servingGrams} g` }] : []),
+            ]} />
+            <Field label={unit === 'g' ? 'Amount (g)' : unit === 'oz' ? 'Amount (oz)' : 'Servings'} keyboardType="decimal-pad" value={amount} onChangeText={setAmount} />
+            <T>{grams ? `${grams} g · ` : ''}{m.kcal} kcal · {m.protein} g protein · {m.fat} g fat · {m.carbs} g carbs</T>
+            <Button kind="primary" title="Add" disabled={!grams} onPress={() => grams && log(picked, grams)} />
           </Card>
         ) : null}
       </Modal>
@@ -144,7 +154,7 @@ export default function AddFood() {
       </Modal>
 
       <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)}>
-        {scanning ? <Scanner onClose={() => setScanning(false)} onCode={(code) => { setScanning(false); run(() => byBarcode(code), 'barcode'); }} /> : null}
+        {scanning ? <Scanner onClose={() => setScanning(false)} onCode={(code) => { setScanning(false); run(async () => ({ foods: await byBarcode(code) }), 'barcode'); }} /> : null}
       </Modal>
     </Screen>
   );

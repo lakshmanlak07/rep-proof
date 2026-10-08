@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -62,6 +63,7 @@ export function Why({ e, changed }: { e: Explanation; changed?: boolean }) {
       <Sheet visible={open} onClose={() => setOpen(false)} title="Why this recommendation?">
         <WhyBody e={e} />
         <Button title="Got it" onPress={() => setOpen(false)} />
+        <Button kind="ghost" icon="flask" title="All the evidence, topic by topic" onPress={() => { setOpen(false); router.push('/science'); }} />
       </Sheet>
     </>
   );

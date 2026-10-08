@@ -43,12 +43,13 @@ export default function WorkoutDay() {
         const ex = EXERCISE_BY_ID[e.exerciseId];
         const pinned = e.pinnedSets !== undefined || e.pinnedReps !== undefined;
         return (
-          <Card key={e.exerciseId} onPress={() => router.push({ pathname: '/exercise/[id]', params: { id: e.exerciseId } })}>
+          <Card key={e.exerciseId}>
             <View style={[s.row, { justifyContent: 'space-between' }]}>
-              <View style={{ flex: 1, gap: 2 }}>
+              {/* Two sibling buttons, not one inside the other (invalid nesting on web). */}
+              <Pressable style={{ flex: 1, gap: 2 }} accessibilityRole="button" onPress={() => router.push({ pathname: '/exercise/[id]', params: { id: e.exerciseId } })}>
                 <T bold>{ex.name}</T>
                 <T muted size="sm">{e.pinnedSets ?? e.sets} sets × {e.pinnedReps ?? `${e.repMin}–${e.repMax}`} reps · {(e.lastSetRir ?? e.rirTarget) === 0 ? 'last set to failure' : `${e.rirTarget} RIR`}</T>
-              </View>
+              </Pressable>
               <Pressable accessibilityRole="button" accessibilityLabel="Edit sets and reps" hitSlop={10} onPress={() => setEditing(k)}>
                 <Chip tone={pinned ? 'accent' : 'neutral'} icon={pinned ? 'pin' : 'create-outline'} label={pinned ? 'Pinned' : 'Edit'} />
               </Pressable>

@@ -209,6 +209,13 @@ do $$ begin
     insert into public.workouts (program_id, day_index, day_name) values ('aaaaaaaa-0000-4000-8000-0000000000a1', 99, 'x');
     perform pg_temp.ok(false, 'out-of-range day index refused');
   exception when check_violation then perform pg_temp.ok(true, 'out-of-range day index refused'); end;
+  -- Nutrition goals (migration 5): the four the app offers are accepted, anything else is refused.
+  update public.profiles set nutrition_phase = 'recomp' where id = 'aaaaaaaa-0000-4000-8000-00000000000a';
+  perform pg_temp.ok((select nutrition_phase from public.profiles where id = 'aaaaaaaa-0000-4000-8000-00000000000a') = 'recomp', 'recomp goal saves');
+  begin
+    update public.profiles set nutrition_phase = 'bulk' where id = 'aaaaaaaa-0000-4000-8000-00000000000a';
+    perform pg_temp.ok(false, 'unknown nutrition goal refused');
+  exception when check_violation then perform pg_temp.ok(true, 'unknown nutrition goal refused'); end;
 end $$;
 reset role;
 

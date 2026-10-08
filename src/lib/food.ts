@@ -1,4 +1,6 @@
 import { localDate, must, ok } from './data';
+import { searchCommon } from './commonFoods';
+import { rescale } from './portion';
 import { dedupe, fromOff, OFF_FIELDS, OFF_HEADERS, type Food, type Macros } from './off';
 import { supabase } from './supabase';
 
@@ -61,17 +63,28 @@ async function offBarcode(code: string): Promise<Food[]> {
   return food ? [food] : [];
 }
 
-/** Search every source we have. If the edge function is missing or failing, Open Food Facts direct. */
-export async function searchFoods(query: string): Promise<Food[]> {
+/**
+ * Built-in common foods first (instant, offline), then online results: the edge function (USDA + Open Food
+ * Facts) or, if it is missing or failing, Open Food Facts direct. When online search fails but common foods
+ * match, the common foods are returned with `onlineError` explaining why the online ones are missing.
+ */
+export async function searchFoods(query: string): Promise<{ foods: Food[]; onlineError: string | null }> {
+  const common = searchCommon(query);
   try {
-    return await callFood({ query });
+    return { foods: [...common, ...(await callFood({ query }))], onlineError: null };
   } catch (e) {
     try {
-      return await offSearch(query);
+      return { foods: [...common, ...(await offSearch(query))], onlineError: null };
     } catch {
-      throw e;
+      if (!common.length) throw e;
+      return { foods: common, onlineError: e instanceof FoodError ? e.message : 'Online food search is unavailable right now.' };
     }
   }
+}
+
+/** Change a logged food's amount; its totals scale with the grams. */
+export async function updateLogGrams(log: FoodLog, grams: number) {
+  ok(await supabase.from('food_logs').update(rescale(log, grams)).eq('id', log.id));
 }
 
 /** Packaged foods: Open Food Facts first (worldwide), then USDA branded foods via the edge function. */
