@@ -131,7 +131,7 @@ export default function AddFood() {
       <T muted size="sm">Food data: built-in common foods (typical USDA reference values), USDA FoodData Central (public domain) and Open Food Facts (ODbL). Check labels; databases can contain errors.</T>
 
       <Modal visible={!!picked} transparent animationType="slide" onRequestClose={() => setPicked(null)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setPicked(null)} />
+        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setPicked(null)} accessibilityRole="button" accessibilityLabel="Close" />
         {picked && m ? (
           <Card style={sheet}>
             <T size="lg">{picked.name}</T>
@@ -149,7 +149,7 @@ export default function AddFood() {
       </Modal>
 
       <Modal visible={custom} transparent animationType="slide" onRequestClose={() => setCustom(false)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setCustom(false)} />
+        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setCustom(false)} accessibilityRole="button" accessibilityLabel="Close" />
         {custom ? <CustomFood initialName={query} onCancel={() => setCustom(false)} onAdd={(f, g) => { setCustom(false); log(f, g); }} /> : null}
       </Modal>
 
