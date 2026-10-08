@@ -61,14 +61,35 @@ const forged = `${h}.${Buffer.from(JSON.stringify({ ...claims, sub: '00000000-00
 report((await req('/rest/v1/profiles?select=id', { method: 'GET', token: forged })).status === 401, 'token with an edited user id is refused');
 report(claims.exp - claims.iat <= 3600, 'access tokens live at most an hour', `${claims.exp - claims.iat} s`);
 
-// Refresh token rotation and reuse detection.
-const r1 = await refresh(first.json.refresh_token);
-report(r1.status === 200 && r1.json.refresh_token !== first.json.refresh_token, 'refresh issues a new refresh token', `HTTP ${r1.status}`);
-await sleep(12000); // past Supabase's reuse interval (10 s)
-const replay = await refresh(first.json.refresh_token);
-report(replay.status >= 400, 'replaying a used refresh token is refused', `HTTP ${replay.status} ${replay.code ?? ''}`);
-const after = await refresh(r1.json.refresh_token);
-report(after.status >= 400, 'replay revokes the whole session (reuse detection on)', after.status >= 400 ? `HTTP ${after.status}` : 'still valid: turn on "Detect and revoke potentially compromised refresh tokens"');
+// Refresh token rotation and reuse detection, as Supabase Auth implements it (supabase/auth, internal/tokens):
+// - every refresh issues a new refresh token and revokes the one used;
+// - the immediately previous token may be replayed (the app may have crashed before saving the new one):
+//   Supabase then returns the SAME current token and issues no new credential;
+// - any older token is refused, and with "Detect and revoke potentially compromised refresh tokens" on,
+//   the whole session is ended;
+// - a revoked token stays usable for the reuse interval (10 s) after it was revoked, so the session check
+//   waits past that window.
+const REUSE_WAIT_MS = 12000; // reuse interval (10 s) plus margin
+const t0 = first.json.refresh_token;
+const r1 = await refresh(t0);
+const t1 = r1.json.refresh_token;
+report(r1.status === 200 && !!t1 && t1 !== t0, 'refresh issues a new refresh token', `HTTP ${r1.status}`);
+const r2 = await refresh(t1);
+const t2 = r2.json.refresh_token;
+report(r2.status === 200 && !!t2 && t2 !== t1, 'second refresh issues another new refresh token', `HTTP ${r2.status}`);
+await sleep(REUSE_WAIT_MS); // t0 and t1 now revoked for longer than the reuse interval
+
+const previous = await refresh(t1);
+report(previous.status === 200 && previous.json.refresh_token === t2,
+  'replaying the immediately previous token returns the current token, never a new one (documented crash recovery)',
+  previous.status !== 200 ? `HTTP ${previous.status} ${previous.code ?? ''}` : previous.json.refresh_token === t2 ? 'same token' : 'a NEW token was issued');
+
+const replay = await refresh(t0);
+report(replay.status === 400 && replay.code === 'refresh_token_already_used', 'replaying a token from two rotations back is refused', `HTTP ${replay.status} ${replay.code ?? ''}`);
+await sleep(REUSE_WAIT_MS); // past the reuse window that starts when the session's tokens are revoked
+const after = await refresh(t2);
+report(after.status >= 400, 'that replay ended the whole session: the current token is refused 12 s later',
+  after.status >= 400 ? `HTTP ${after.status} ${after.code ?? ''}` : 'still valid: turn on "Detect and revoke potentially compromised refresh tokens"');
 
 // Global sign-out (what the app's "Sign out" and password reset do).
 const second = await signIn(EMAIL, PASSWORD);
