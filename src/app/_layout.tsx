@@ -1,3 +1,5 @@
+import 'expo-sqlite/localStorage/install';
+
 import { DefaultTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
@@ -67,6 +69,8 @@ export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
           <T muted>Your logged workouts are safe. An unfinished workout stays saved on this phone.</T>
         </View>
         <Button kind="primary" title="Try again" onPress={retry} />
+        {/* Escape hatch: if a saved unfinished workout is what crashes, retrying alone would loop. */}
+        <Button kind="ghost" title="Discard the unfinished workout" onPress={() => { localStorage.removeItem('draft_workout'); retry(); }} />
       </Screen>
     </ThemeProvider>
   );

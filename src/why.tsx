@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { REFERENCES } from '@/engine/references.ts';
+import { topicFor } from '@/engine/science.ts';
 import type { EvidenceLabel, Explanation } from '@/engine/types.ts';
 import { track } from '@/lib/data';
 import { Button, C, Card, Chip, IconTile, Sheet, T, type Tone } from '@/ui';
@@ -52,6 +53,7 @@ export function RefLinks({ ids }: { ids: string[] }) {
 /** "Why?" affordance; highlighted when the suggestion changed since last time. Opens an explanation sheet. */
 export function Why({ e, changed }: { e: Explanation; changed?: boolean }) {
   const [open, setOpen] = useState(false);
+  const topic = topicFor(e);
   return (
     <>
       <Pressable accessibilityRole="button" accessibilityLabel="Why?" hitSlop={12}
@@ -63,7 +65,8 @@ export function Why({ e, changed }: { e: Explanation; changed?: boolean }) {
       <Sheet visible={open} onClose={() => setOpen(false)} title="Why this recommendation?">
         <WhyBody e={e} />
         <Button title="Got it" onPress={() => setOpen(false)} />
-        <Button kind="ghost" icon="flask" title="All the evidence, topic by topic" onPress={() => { setOpen(false); router.push('/science'); }} />
+        <Button kind="ghost" icon="flask" title={topic ? `Read the evidence: ${topic.title}` : 'All the evidence, topic by topic'}
+          onPress={() => { setOpen(false); router.push(topic ? { pathname: '/science', params: { topic: topic.title } } : '/science'); }} />
       </Sheet>
     </>
   );

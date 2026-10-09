@@ -48,7 +48,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --test src/engine/engine.test.ts src/lib/security.test.ts src/lib/auth.test.ts src/lib/food.test.ts",
+    "test": "node --test src/engine/engine.test.ts src/lib/security.test.ts src/lib/auth.test.ts src/lib/food.test.ts src/lib/beta.test.ts src/lib/workoutSave.test.ts",
     "typecheck": "tsc --noEmit",
     "test:db": "node supabase/tests/run.mjs",
     "test:live": "node supabase/tests/live_probe.mjs",

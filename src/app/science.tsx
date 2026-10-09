@@ -1,16 +1,25 @@
+import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
-import { CAUTIONS, DEBATES, MISSION, MOTTO, POSITIONING, PRINCIPLES, TIERS, TOPICS } from '@/engine/science.ts';
+import { CAUTIONS, DEBATES, MISSION, MOTTO, POSITIONING, PRINCIPLES, TIERS, TOPICS, type Topic } from '@/engine/science.ts';
 import { track } from '@/lib/data';
 import { C, Card, s, Screen, T } from '@/ui';
 import { Badge, RefLinks } from '@/why';
 
 export default function Science() {
-  const [open, setOpen] = useState<string | null>(null);
+  // Opened from a Why sheet: that topic is shown first, expanded.
+  const { topic } = useLocalSearchParams<{ topic?: string }>();
+  const linked = TOPICS.find((t) => t.title === topic) ?? null;
+  const [open, setOpen] = useState<string | null>(linked?.title ?? null);
+  const card = (t: Topic) => <TopicCard key={t.title} t={t} expanded={open === t.title} onToggle={() => setOpen(open === t.title ? null : t.title)} />;
 
   return (
     <Screen edges={['bottom']}>
+      {linked ? (<>
+        <T size="micro">The evidence behind that recommendation</T>
+        {card(linked)}
+      </>) : null}
       <T size="lg">{POSITIONING}</T>
       <T muted>{MISSION}</T>
       <Card style={{ borderColor: C.accent }}>
@@ -37,29 +46,7 @@ export default function Science() {
       ))}
 
       <T size="lg">The evidence, topic by topic</T>
-      {TOPICS.map((t) => {
-        const expanded = open === t.title;
-        return (
-          <Pressable key={t.title} accessibilityRole="button" accessibilityState={{ expanded }}
-            onPress={() => { setOpen(expanded ? null : t.title); if (!expanded) track('science_topic', { topic: t.title }); }}>
-            <Card>
-              <T size="lg">{t.title}</T>
-              <Badge label={t.label} />
-              <T>{t.shows}</T>
-              {expanded ? (<>
-                <T bold>What it does not show</T>
-                <T muted>{t.doesNotShow}</T>
-                <T bold>In RepProof</T>
-                <T muted>{t.inApp}</T>
-                {t.refIds.length ? (<>
-                  <T bold>Studies</T>
-                  <RefLinks ids={t.refIds} />
-                </>) : <T muted size="sm">No study measures this directly; this is our rule, labeled as one.</T>}
-              </>) : <T muted size="sm">Tap for details and studies</T>}
-            </Card>
-          </Pressable>
-        );
-      })}
+      {TOPICS.filter((t) => t !== linked).map(card)}
 
       <T size="lg">Where we stay cautious</T>
       <Card>
@@ -73,5 +60,28 @@ export default function Science() {
       </Card>
       <T muted size="sm">Studies checked against PubMed records, October 2026. Not medical advice.</T>
     </Screen>
+  );
+}
+
+function TopicCard({ t, expanded, onToggle }: { t: Topic; expanded: boolean; onToggle: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded }}
+      onPress={() => { onToggle(); if (!expanded) track('science_topic', { topic: t.title }); }}>
+      <Card>
+        <T size="lg">{t.title}</T>
+        <Badge label={t.label} />
+        <T>{t.shows}</T>
+        {expanded ? (<>
+          <T bold>What it does not show</T>
+          <T muted>{t.doesNotShow}</T>
+          <T bold>In RepProof</T>
+          <T muted>{t.inApp}</T>
+          {t.refIds.length ? (<>
+            <T bold>Studies</T>
+            <RefLinks ids={t.refIds} />
+          </>) : <T muted size="sm">No study measures this directly; this is our rule, labeled as one.</T>}
+        </>) : <T muted size="sm">Tap for details and studies</T>}
+      </Card>
+    </Pressable>
   );
 }

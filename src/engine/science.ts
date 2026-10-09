@@ -1,4 +1,4 @@
-import type { EvidenceLabel } from './types.ts';
+import type { EvidenceLabel, Explanation } from './types.ts';
 
 // RepProof's scientific identity and evidence library, shown in the app.
 // Built from abstracts checked against PubMed (see references.ts). Creators are never named here (PRD):
@@ -219,3 +219,14 @@ export const TOPICS: Topic[] = [
     refIds: [],
   },
 ];
+
+/** The evidence topic behind an explanation: the one sharing the most studies with it (null if none does). */
+export function topicFor(e: Explanation): Topic | null {
+  let best: Topic | null = null;
+  let shared = 0;
+  for (const t of TOPICS) {
+    const n = t.refIds.filter((id) => e.refIds.includes(id)).length;
+    if (n > shared) [best, shared] = [t, n];
+  }
+  return best;
+}

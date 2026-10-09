@@ -12,11 +12,13 @@ import { cooldown, isMissed } from '@/engine/session.ts';
 import type { CheckIn, Explanation, LoggedSet, PlannedExercise } from '@/engine/types.ts';
 import { saveCoachNotes } from '@/lib/coach';
 import {
-  bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updatePlan, updateProfile, useData, type DraftSet, uuid,
+  bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updatePlan, updateProfile, useData, uuid,
 } from '@/lib/data';
 import { Button, C, Card, Chip, Choice, IconButton, IconTile, Loading, Press, ProgressBar, Reveal, s, Screen, Section, Sheet, Stepper, T } from '@/ui';
 import { alert, attempt } from '@/lib/alert';
 import { Badge, Why } from '@/why';
+import { isUsableDraft } from '@/lib/draft';
+import { once, prepareSave, rowProblem, saveFailure } from '@/lib/workoutSave';
 import { leave } from '@/lib/nav';
 
 type Row = { weight: string; reps: string; rir: string; done: boolean };
@@ -73,9 +75,13 @@ export default function Workout() {
   // A draft belongs to the account that started it (several accounts can share a phone).
   const [draft, setDraft] = useState<Draft | null>(() => {
     const d = loadDraft();
-    return d && d.userId === session?.user.id ? d : null;
+    if (!d || d.userId !== session?.user.id) return null;
+    if (isUsableDraft(d, session?.user.id, program?.plan.days.length ?? 14, (id) => !!EXERCISE_BY_ID[id])) return d;
+    localStorage.removeItem(KEY); // unreadable (older version, renamed exercise): discard, never crash on it
+    return null;
   });
   const finishing = useRef(false);
+  const [saveError, setSaveError] = useState<{ message: string; retry: boolean } | null>(null);
   const [checkin, setCheckin] = useState<CheckIn>({ sleep: 3, soreness: 3, energy: 3 });
   const [busy, setBusy] = useState(false);
   const [restEnd, setRestEnd] = useState<number | null>(null);
@@ -143,6 +149,8 @@ export default function Workout() {
   function logSet(i: number, j: number) {
     if (!draft) return;
     const it = draft.items[i];
+    const problem = !it.sets[j].done && rowProblem(it.sets[j]);
+    if (problem) return alert('Check this set', `Set ${j + 1}: ${problem}.`);
     update(i, (x) => ({
       ...x,
       sets: x.sets.map((r, k) => {
@@ -225,18 +233,20 @@ export default function Workout() {
     ]);
   }
 
-  async function finish() {
-    if (finishing.current || !draft) return; // double tap must not save the workout twice
-    finishing.current = true;
-    const d = draft;
-    const sets: DraftSet[] = d.items.flatMap((it) => it.sets.filter((r) => r.done).map((r, k) => {
-      const weight = Number(r.weight) || 0;
-      const reps = Number(r.reps) || 0;
-      return {
-        exerciseId: it.exerciseId, setIndex: k, weight, reps, rir: r.rir === '' ? null : Number(r.rir),
-        overridden: weight !== it.suggestion.weight || reps !== it.suggestion.reps,
-      };
-    }));
+  const prepared = () => prepareSave((draft?.items ?? []).map((it) => ({ ...it, name: EXERCISE_BY_ID[it.exerciseId].name })));
+
+  // Double taps and taps during a slow save are ignored; the lock is released on failure so Retry works.
+  const finish = () => once(finishing, finishNow);
+
+  async function finishNow() {
+    if (!draft) return;
+    const { sets, problems } = prepared();
+    if (problems.length) return setSaveError({ message: problems.join('\n'), retry: false });
+    // One save id for this workout across retries (drafts from older versions have none): a retry after a
+    // save that went through but whose answer was lost returns the same workout instead of a second one.
+    const d = draft.clientId ? draft : { ...draft, clientId: uuid() };
+    if (!draft.clientId) { localStorage.setItem(KEY, JSON.stringify(d)); setDraft(d); }
+    setSaveError(null);
     const prs: string[] = [];
     const next: Summary['next'] = [];
     let perfDrops = 0;
@@ -253,14 +263,13 @@ export default function Workout() {
     setBusy(true);
     try {
       await saveWorkout({
-        clientId: d.clientId ?? uuid(),
+        clientId: d.clientId!,
         programId: program!.id, dayIndex: d.dayIndex, dayName: day.name, checkin: d.checkin, startedAt: d.startedAt,
         sets, daysInPlan: nDays, perfDrops,
       });
-    } catch {
+    } catch (e) {
       setBusy(false);
-      finishing.current = false;
-      return alert('Not saved yet', 'Your workout is kept on this phone. Check your connection and tap Finish again.');
+      return setSaveError({ message: saveFailure(e), retry: true });
     }
     localStorage.removeItem(KEY);
     setDraft(null); // saved: drop it from state too, or a later effect run would write it back
@@ -300,9 +309,10 @@ export default function Workout() {
 
   function confirmFinish() {
     if (!draft) return;
-    const left = draft.items.reduce((a, it) => a + it.sets.filter((r) => !r.done).length, 0);
+    const { problems, left } = prepared();
+    if (problems.length) return setSaveError({ message: problems.join('\n'), retry: false });
     if (!left) return finish();
-    alert('Finish workout?', `${left} set${left > 1 ? 's' : ''} not logged. Unlogged sets are not saved.`, [
+    alert('Finish workout?', `${left} set${left > 1 ? 's' : ''} not logged. They are optional: logged sets are saved, unlogged ones are skipped.`, [
       { text: 'Keep going', style: 'cancel' },
       { text: 'Finish', onPress: finish },
     ]);
@@ -594,6 +604,13 @@ export default function Workout() {
         )}
       </View>
       {i < draft.items.length - 1 ? <Button kind="ghost" title="Finish workout" loading={busy} onPress={confirmFinish} /> : null}
+      {saveError ? (
+        <Card style={{ borderColor: C.danger }}>
+          <T bold color={C.danger}>{saveError.retry ? 'Not saved yet' : 'Fix before finishing'}</T>
+          <T>{saveError.message}</T>
+          {saveError.retry ? <Button kind="primary" title="Retry" loading={busy} onPress={finish} /> : null}
+        </Card>
+      ) : null}
 
       <Sheet visible={adding} onClose={() => setAdding(false)} title="Add an exercise">
         <T muted size="sm">Logged and tracked like the rest of your plan.</T>
