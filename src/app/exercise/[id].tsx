@@ -54,7 +54,7 @@ export default function ExerciseDetail() {
       </Section>
       <Card flat style={{ backgroundColor: C.accentSoft, borderColor: 'transparent' }}>
         <View style={[s.row, { justifyContent: 'space-between' }]}>
-          <T size="micro" color={C.accent}>Rep Proof note</T>
+          <T size="micro" color={C.accent}>RepProof note</T>
           <Badge label="principle" />
         </View>
         <T>{info.note}</T>

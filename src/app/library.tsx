@@ -16,7 +16,7 @@ export default function Library() {
       <View style={{ gap: 4 }}>
         <T size="micro">Discover</T>
         <T size="xl">Exercise library</T>
-        <T muted>Every movement Rep Proof can put in your plan, with cues and programming notes.</T>
+        <T muted>Every movement RepProof can put in your plan, with cues and programming notes.</T>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
         {CATEGORIES.map((c) => <Pill key={c.id} label={c.label} on={cat === c.id} onPress={() => setCat(c.id)} />)}

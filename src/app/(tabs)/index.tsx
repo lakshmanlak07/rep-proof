@@ -17,7 +17,7 @@ import { dayLogs, sum, type Macros, type Meal } from '@/lib/food';
 import { loadCoachNotes, type CoachNotes } from '@/lib/coach';
 import { newBests, streakWeeks, weekDots, type Best, type SetRecord } from '@/lib/stats';
 import { supabase } from '@/lib/supabase';
-import { Button, C, Card, Chip, Header, IconTile, LineChart, ProgressBar, Reveal, s, Screen, Section, T, type Tone } from '@/ui';
+import { Banner, Button, C, Card, Chip, IconTile, LineChart, ProgressBar, Reveal, s, Screen, Section, T, type Tone } from '@/ui';
 import { Badge, InsightCard, Why } from '@/why';
 
 type Done = { id: string; day_name: string; finished_at: string; logged_sets: { count: number }[] };
@@ -119,8 +119,8 @@ export default function Home() {
   }
   const name = firstName(session?.user.email);
   const quick = (icon: keyof typeof Ionicons.glyphMap, label: string, go: () => void) => (
-    <Card key={label} onPress={go} style={{ flexBasis: '47%', flexGrow: 1, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 }}>
-      <IconTile name={icon} tone="neutral" size={36} />
+    <Card key={label} flat onPress={go} style={{ flexBasis: '47%', flexGrow: 1, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 }}>
+      <IconTile name={icon} size={36} />
       <T bold>{label}</T>
     </Card>
   );
@@ -137,19 +137,26 @@ export default function Home() {
     </Card>
   );
 
+  const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  const names = day.exercises.slice(0, 3).map((e) => EXERCISE_BY_ID[e.exerciseId]?.name.split(' ').slice(-2).join(' ')).join(', ');
+  const doneDays = dots.filter(Boolean).length;
+  const todayIndex = (new Date().getDay() + 6) % 7; // Monday first, like weekDots
+
+  // Board 05 · 01 Home: header, alerts, today's workout (hero), nutrition, this week, science of the day.
   return (
     <Screen edges={['top']}>
-      <Header kicker={greeting()} title={name ? `${name}, you're ready.` : "You're ready to train."}
-        right={<Pressable accessibilityRole="button" accessibilityLabel="Profile" hitSlop={12} onPress={() => router.push('/profile')}>
-          <IconTile name="person" tone="neutral" size={44} />
-        </Pressable>} />
+      <View style={[s.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <T size="sm" muted>{today}</T>
+          <T size="xl">{greeting()}{name ? `,\n${name}` : ''}</T>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Account" hitSlop={12} onPress={() => router.push('/profile')}
+          style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: C.border, backgroundColor: C.card, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="person-outline" size={20} color={C.text} />
+        </Pressable>
+      </View>
 
-      {deload ? (
-        <Card flat style={{ backgroundColor: C.accentSoft, borderColor: 'transparent' }}>
-          <T bold color={C.accent}>Deload week</T>
-          <T muted>Half the sets, same weights, until {profile.deload_until}.</T>
-        </Card>
-      ) : null}
+      {deload ? <Banner tone="accent" text={`Deload week: half the sets, same weights, until ${profile.deload_until}.`} /> : null}
       {offer && !deload ? (
         <Card flat style={{ backgroundColor: C.warnSoft, borderColor: 'transparent' }}>
           <View style={[s.row, { justifyContent: 'space-between' }]}>
@@ -160,72 +167,102 @@ export default function Home() {
           <Button title="Start a deload week" onPress={acceptDeload} />
         </Card>
       ) : null}
-      {missed ? (
-        <Card flat>
-          <T bold>Missed a session?</T>
-          <T muted>No problem. When you start, choose to do it now or skip to the next one.</T>
-        </Card>
-      ) : null}
+      {missed ? <Banner text="Missed a session? No problem. When you start, choose to do it now or skip to the next one." /> : null}
 
       <Reveal>
-        <View style={{ backgroundColor: C.accent, borderRadius: 28, padding: 22, gap: 18, shadowColor: C.accent, shadowOpacity: 0.28, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 6 }}>
-          <View style={{ gap: 6 }}>
-            <T size="micro" color="#B9D8DA">Today&apos;s workout</T>
-            <T size="xl" color="#fff">{day.name}</T>
-            <T color="#D7E8E9">~{dayMinutes} min · {day.exercises.length} exercises · {daySets} sets</T>
-          </View>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {dayMuscles.map((m) => (
-              <View key={m} style={{ backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
-                <T size="sm" color="#fff" bold>{MUSCLE_NAMES[m]}</T>
+        <Card variant="hero" style={{ gap: 14 }}>
+          <View style={[s.row, { gap: 8 }]}>
+            {['Today', `~${dayMinutes} min`].map((t, i) => (
+              <View key={t} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
+                {i ? <Ionicons name="time-outline" size={13} color="#fff" /> : null}
+                <T size="sm" bold color="#fff">{t}</T>
               </View>
             ))}
           </View>
-          <Button kind="secondary" title="Start workout" icon="play" onPress={() => router.push('/workout')} style={{ borderColor: 'transparent' }} />
+          <View style={{ gap: 4 }}>
+            <T size="xl" color="#fff">{day.name}</T>
+            <T size="sm" color="#F3DCE3">{day.exercises.length} exercises · {daySets} sets · {names}</T>
+          </View>
+          <View style={[s.row, { flexWrap: 'wrap', gap: 6 }]}>
+            {dayMuscles.map((m) => (
+              <View key={m} style={{ backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
+                <T size="sm" color="#fff">{MUSCLE_NAMES[m]}</T>
+              </View>
+            ))}
+          </View>
+          <Button kind="light" title="Start workout" icon="play" onPress={() => router.push('/workout')} />
           <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/workout-day/[index]', params: { index: String(program.next_day) } })} hitSlop={8} style={{ alignSelf: 'center' }}>
-            <T size="sm" bold color="#D7E8E9">Preview exercises</T>
+            <T size="sm" bold color="#F3DCE3">Preview exercises</T>
           </Pressable>
-        </View>
+        </Card>
       </Reveal>
+
+      <Card onPress={() => router.push('/nutrition')}>
+        <View style={[s.row, { justifyContent: 'space-between' }]}>
+          <T bold>{"Today's nutrition"}</T>
+          <T size="sm" muted>{Math.round(eaten?.kcal ?? 0).toLocaleString()} of {goal.calories.toLocaleString()} kcal</T>
+        </View>
+        <ProgressBar value={eaten?.kcal ?? 0} max={goal.calories} />
+        <View style={[s.row, { flexWrap: 'wrap', gap: 14 }]}>
+          <T size="sm" muted><T size="sm" bold>{Math.round(eaten?.protein ?? 0)}</T> / {goal.protein} g protein</T>
+          <T size="sm" muted><T size="sm" bold>{Math.round(eaten?.carbs ?? 0)}</T> g carbs</T>
+          <T size="sm" muted><T size="sm" bold>{Math.round(eaten?.fat ?? 0)}</T> g fat</T>
+        </View>
+      </Card>
 
       <Card>
         <View style={[s.row, { justifyContent: 'space-between' }]}>
-          <T size="micro">This week</T>
-          {streak > 1 ? <Chip tone="pos" icon="flame" label={`${streak}-week streak`} /> : null}
+          <T bold>This week</T>
+          <Chip tone="pos" icon="checkmark" label={`${doneDays} of ${program.plan.days.length}`} />
         </View>
-        <View style={s.row} accessibilityLabel={`Trained ${dots.filter(Boolean).length} days this week`}>
+        <View style={[s.row, { justifyContent: 'space-between' }]} accessibilityLabel={`Trained ${doneDays} days this week`}>
           {dots.map((on, i) => (
-            <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.accent : C.sunken }}>
-                {on ? <Ionicons name="checkmark" size={18} color="#fff" /> : null}
-              </View>
-              <T size="micro">{DAY_LETTERS[i]}</T>
+            <View key={i} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+              backgroundColor: on ? C.accent : C.sunken, borderWidth: i === todayIndex && !on ? 2 : 0, borderColor: C.accent }}>
+              <T size="sm" bold color={on ? '#fff' : C.text2}>{DAY_LETTERS[i]}</T>
             </View>
           ))}
         </View>
-        <T muted size="sm">{dots.filter(Boolean).length} of {program.plan.days.length} sessions complete</T>
+        <View style={[s.row, { flexWrap: 'wrap', gap: 6 }]}>
+          {streak > 1 ? <Chip tone="pos" icon="flame-outline" label={`${streak}-week streak`} /> : null}
+          {bests[0] ? <Chip tone="accent" icon="trophy-outline" label={`${EXERCISE_BY_ID[bests[0].exerciseId]?.name ?? 'PR'} ${bests[0].weight} ${profile.unit}`} /> : null}
+        </View>
       </Card>
+
+      {tip ? (
+        <Card variant="tint" onPress={() => router.push({ pathname: '/science', params: { topic: tip.title } })}>
+          <View style={[s.row, { justifyContent: 'space-between' }]}>
+            <T size="micro">Science of the day</T>
+            <Badge label={tip.label} />
+          </View>
+          <View style={[s.row, { justifyContent: 'space-between' }]}>
+            <T bold style={{ flex: 1 }}>{tip.title}</T>
+            <Ionicons name="chevron-forward" size={18} color={C.accent} />
+          </View>
+          <T muted size="sm" numberOfLines={2}>{tip.shows}</T>
+        </Card>
+      ) : null}
 
       <Section title="Your training">
         <View style={[s.row, { flexWrap: 'wrap', alignItems: 'stretch' }]}>
-          {tile('layers', 'accent', 'Weekly volume', `${doneTotal} / ${plannedTotal} sets`, 'Hard sets logged this week', () => router.push('/volume'),
+          {tile('layers-outline', 'accent', 'Weekly volume', `${doneTotal} / ${plannedTotal} sets`, 'Hard sets logged this week', () => router.push('/volume'),
             <ProgressBar value={doneTotal} max={plannedTotal || 1} />)}
-          {tile('trending-up', 'pos', 'Progression', progressing ? (EXERCISE_BY_ID[progressing.exerciseId]?.name ?? 'On track') : 'Building baseline',
+          {tile('trending-up-outline', 'pos', 'Progression', progressing ? (EXERCISE_BY_ID[progressing.exerciseId]?.name ?? 'On track') : 'Building baseline',
             progressing ? 'Responding well, keep going' : 'Decisions start after 3 sessions', () => router.push('/insights'))}
-          {tile('pulse', ready.tone, 'Readiness', ready.label, ready.detail, () => router.push('/insights'))}
-          {tile('trophy', 'warn', 'Recent PRs', bests.length ? `${bests.length} new` : 'None yet', bests.length ? `${EXERCISE_BY_ID[bests[0].exerciseId]?.name} ${bests[0].weight} ${profile.unit}` : 'Your next best shows up here', () => router.push('/progress'))}
+          {tile('pulse-outline', ready.tone, 'Readiness', ready.label, ready.detail, () => router.push('/insights'))}
+          {tile('trophy-outline', 'warn', 'Recent PRs', bests.length ? `${bests.length} new` : 'None yet', bests.length ? `${EXERCISE_BY_ID[bests[0].exerciseId]?.name} ${bests[0].weight} ${profile.unit}` : 'Your next best shows up here', () => router.push('/progress'))}
         </View>
       </Section>
 
       {insight ? (
-        <Section title="Rep Proof insight" action="All insights" onAction={() => router.push('/insights')}>
+        <Section title="RepProof insight" action="All insights" onAction={() => router.push('/insights')}>
           <InsightCard kicker={insight.kicker} icon={insight.icon} tone={insight.tone} see={insight.see} why={insight.why} todo={insight.todo} evidence={insight.evidence} refIds={insight.refIds} />
         </Section>
       ) : (
-        <Section title="Rep Proof insight">
-          <Card>
+        <Section title="RepProof insight">
+          <Card flat>
             <T bold>Your coach is learning.</T>
-            <T muted>Finish a few sessions and Rep Proof will explain what is working, what is stalling and what to change, with the reasoning shown.</T>
+            <T muted>Finish a few sessions and RepProof will explain what is working, what is stalling and what to change, with the reasoning shown.</T>
           </Card>
         </Section>
       )}
@@ -250,46 +287,20 @@ export default function Home() {
 
       <Section title="Quick log">
         <View style={[s.row, { flexWrap: 'wrap' }]}>
-          {quick('restaurant', 'Log food', () => router.push({ pathname: '/food', params: { meal } }))}
-          {quick('scale', 'Log weight', () => router.push('/progress'))}
-          {quick('book', 'Exercise library', () => router.push('/library'))}
-          {quick('flask', 'The science', () => router.push('/science'))}
+          {quick('restaurant-outline', 'Log food', () => router.push({ pathname: '/food', params: { meal } }))}
+          {quick('scale-outline', 'Log weight', () => router.push('/progress'))}
+          {quick('library-outline', 'Exercise library', () => router.push('/library'))}
+          {quick('book-outline', 'The science', () => router.push('/science'))}
         </View>
       </Section>
 
-      <Card onPress={() => router.push('/nutrition')}>
-        <T size="micro">Nutrition today</T>
-        <View style={s.row}>
-          <View style={{ flex: 1, gap: 6 }}>
-            <T bold>{Math.round(eaten?.kcal ?? 0)} <T muted size="sm">/ {goal.calories} kcal</T></T>
-            <ProgressBar value={eaten?.kcal ?? 0} max={goal.calories} />
-          </View>
-          <View style={{ flex: 1, gap: 6 }}>
-            <T bold>{Math.round(eaten?.protein ?? 0)} <T muted size="sm">/ {goal.protein} g protein</T></T>
-            <ProgressBar value={eaten?.protein ?? 0} max={goal.protein} />
-          </View>
-        </View>
-      </Card>
-
       {last ? (
-        <Card onPress={() => router.push('/progress')}>
+        <Card flat onPress={() => router.push('/progress')}>
           <T size="micro">Last workout</T>
           <View style={[s.row, { justifyContent: 'space-between' }]}>
             <T bold>{last.day_name}</T>
-            <T muted>{new Date(last.finished_at).toLocaleDateString()} · {last.logged_sets[0]?.count ?? 0} sets</T>
+            <T muted size="sm">{new Date(last.finished_at).toLocaleDateString()} · {last.logged_sets[0]?.count ?? 0} sets</T>
           </View>
-        </Card>
-      ) : null}
-
-      {tip ? (
-        <Card onPress={() => router.push('/science')}>
-          <View style={[s.row, { justifyContent: 'space-between' }]}>
-            <T size="micro">Science of the day</T>
-            <Badge label={tip.label} />
-          </View>
-          <T bold>{tip.title}</T>
-          <T muted>{tip.shows}</T>
-          <T size="sm" bold color={C.accent}>See the studies</T>
         </Card>
       ) : null}
 

@@ -7,6 +7,7 @@ import { View } from 'react-native';
 import { SPLIT_NAMES } from '@/engine/plan.ts';
 import { alert, friendlyError } from '@/lib/alert';
 import { useData } from '@/lib/data';
+import { DISCLAIMER } from '@/lib/pending';
 import { firstName } from '@/lib/insights';
 import { EXPERIENCE_OPTIONS, GOAL_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
 import { supabase } from '@/lib/supabase';
@@ -17,7 +18,7 @@ const label = <V,>(opts: { value: V; label: string }[], v: V | undefined) => opt
 
 export default function Profile() {
   const { session, profile, program } = useData();
-  const [sheet, setSheet] = useState<null | 'notifications' | 'appearance' | 'units' | 'data' | 'privacy'>(null);
+  const [sheet, setSheet] = useState<null | 'notifications' | 'appearance' | 'units' | 'data' | 'privacy' | 'disclaimer' | 'signout'>(null);
   if (!profile || !program) return null;
   const who = session?.user.email || session?.user.phone || '';
   const name = firstName(session?.user.email);
@@ -38,19 +39,19 @@ export default function Profile() {
 
   return (
     <Screen edges={['top']}>
-      <Header kicker="Account" title="Profile" />
-      <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+      <Header title="Account" />
+      <Card flat style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
         <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
           <T size="lg" color="#fff">{(name || who).charAt(0).toUpperCase() || 'R'}</T>
         </View>
         <View style={{ flex: 1 }}>
-          <T bold numberOfLines={1}>{name || 'Rep Proof member'}</T>
+          <T bold numberOfLines={1}>{name || 'RepProof member'}</T>
           <T muted size="sm" numberOfLines={1}>{who}</T>
         </View>
       </Card>
 
       <Section title="Training">
-        <Card style={{ gap: 4 }}>
+        <Card flat style={{ gap: 4 }}>
           <ListRow icon="flag" title="Training goal" value={label(GOAL_OPTIONS, profile.goal)} onPress={() => router.push('/training')} />
           <Divider />
           <ListRow icon="school" title="Experience" value={label(EXPERIENCE_OPTIONS, profile.experience)} onPress={() => router.push('/training')} />
@@ -62,7 +63,7 @@ export default function Profile() {
       </Section>
 
       <Section title="Settings">
-        <Card style={{ gap: 4 }}>
+        <Card flat style={{ gap: 4 }}>
           <ListRow icon="resize" title="Units" value={profile.unit} onPress={() => setSheet('units')} />
           <Divider />
           <ListRow icon="notifications" title="Notifications" onPress={() => setSheet('notifications')} />
@@ -71,19 +72,21 @@ export default function Profile() {
           <Divider />
           <ListRow icon="cloud" title="Data" onPress={() => setSheet('data')} />
           <Divider />
-          <ListRow icon="shield-checkmark" title="Privacy" onPress={() => setSheet('privacy')} />
+          <ListRow icon="shield-checkmark-outline" title="Privacy" onPress={() => setSheet('privacy')} />
+          <Divider />
+          <ListRow icon="document-text-outline" title="Disclaimer" onPress={() => setSheet('disclaimer')} />
         </Card>
       </Section>
 
       <Section title="More">
-        <Card style={{ gap: 4 }}>
-          <ListRow icon="flask" title="The science behind Rep Proof" onPress={() => router.push('/science')} />
+        <Card flat style={{ gap: 4 }}>
+          <ListRow icon="flask" title="The science behind RepProof" onPress={() => router.push('/science')} />
           <Divider />
           <ListRow icon="book" title="Exercise library" onPress={() => router.push('/library')} />
           <Divider />
           <ListRow icon="chatbubble-ellipses" title="Send feedback" onPress={() => router.push('/feedback')} />
           <Divider />
-          <ListRow icon="log-out" title="Sign out" onPress={() => { clearLocal(); supabase.auth.signOut(); }} />
+          <ListRow icon="log-out-outline" title="Sign out" onPress={() => setSheet('signout')} />
         </Card>
       </Section>
 
@@ -93,12 +96,12 @@ export default function Profile() {
         <Button title="Got it" onPress={() => setSheet(null)} />
       </Sheet>
       <Sheet visible={sheet === 'notifications'} onClose={() => setSheet(null)} title="Notifications">
-        <T>Rep Proof does not send notifications yet.</T>
+        <T>RepProof does not send notifications yet.</T>
         <T muted size="sm">Workout reminders and weekly check-ins are planned for a later release. You will choose exactly what you receive.</T>
         <Button title="Got it" onPress={() => setSheet(null)} />
       </Sheet>
       <Sheet visible={sheet === 'appearance'} onClose={() => setSheet(null)} title="Appearance">
-        <T>Rep Proof currently uses a light, high-contrast theme designed for reading numbers quickly in a bright gym.</T>
+        <T>RepProof currently uses a light, high-contrast theme designed for reading numbers quickly in a bright gym.</T>
         <T muted size="sm">A dark theme is on the roadmap.</T>
         <Button title="Got it" onPress={() => setSheet(null)} />
       </Sheet>
@@ -107,9 +110,19 @@ export default function Profile() {
         <Button kind="danger" title="Delete account and all data" onPress={() => { setSheet(null); deleteAccount(); }} />
         <Button kind="ghost" title="Close" onPress={() => setSheet(null)} />
       </Sheet>
+      <Sheet visible={sheet === 'disclaimer'} onClose={() => setSheet(null)} title="Disclaimer">
+        <T>{DISCLAIMER}</T>
+        <Button title="Got it" onPress={() => setSheet(null)} />
+      </Sheet>
+      {/* Board 08 · 06 Sign out confirmation */}
+      <Sheet visible={sheet === 'signout'} onClose={() => setSheet(null)} title="Sign out of RepProof?">
+        <T muted>Your workouts and food logs stay saved to your account. You can sign back in any time.</T>
+        <Button kind="primary" title="Sign out" onPress={() => { setSheet(null); clearLocal(); supabase.auth.signOut(); }} />
+        <Button kind="ghost" title="Stay signed in" onPress={() => setSheet(null)} />
+      </Sheet>
       <Sheet visible={sheet === 'privacy'} onClose={() => setSheet(null)} title="Privacy">
-        <T>Rep Proof stores only what it needs to coach you: your training profile, logged sets, bodyweight and food.</T>
-        <T muted size="sm">Rep Proof gives training information, not medical advice. If something hurts, stop and see a qualified professional.</T>
+        <T>RepProof stores only what it needs to coach you: your training profile, logged sets, bodyweight and food.</T>
+        <T muted size="sm">RepProof gives training information, not medical advice. If something hurts, stop and see a qualified professional.</T>
         <Button title="Got it" onPress={() => setSheet(null)} />
       </Sheet>
     </Screen>

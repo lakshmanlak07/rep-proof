@@ -35,6 +35,8 @@ type Item = {
 type Draft = { userId: string; clientId?: string; dayIndex: number; startedAt: string; checkin: CheckIn | null; items: Item[] };
 type Summary = {
   sets: number;
+  minutes: number;
+  volume: number; // weight × reps, in the user's unit
   prs: string[];
   next: { exerciseId: string; name: string; text: string; decision?: Decision }[];
   cooldown: string[];
@@ -304,7 +306,9 @@ export default function Workout() {
     }
     setBusy(false);
     const trained = d.items.filter((it) => it.sets.some((r) => r.done)).map((it) => EXERCISE_BY_ID[it.exerciseId].muscle);
-    setSummary({ sets: sets.length, prs, next, cooldown: cooldown(trained), deload, advice });
+    const minutes = Math.max(1, Math.round((clock() - Date.parse(d.startedAt)) / 60000));
+    const volume = sets.reduce((a, x) => a + x.weight * x.reps, 0);
+    setSummary({ sets: sets.length, minutes, volume, prs, next, cooldown: cooldown(trained), deload, advice });
   }
 
   function confirmFinish() {
@@ -330,18 +334,29 @@ export default function Workout() {
     return (
       <Screen>
         <Reveal>
-          <View style={{ alignItems: 'center', gap: 12, paddingVertical: 24 }}>
-            <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="checkmark" size={46} color="#fff" />
-            </View>
-            <T size="xl">Workout complete</T>
-            <T muted>{summary.sets} working sets logged</T>
+          <View style={{ gap: 10, paddingTop: 12 }}>
+            <IconTile name="checkmark" tone="pos" size={48} />
+            <T size="xl">Workout saved.</T>
+            <T muted>{summary.prs.length ? 'Solid session. Here is how it went.' : 'Nice work. Here is how it went.'}</T>
           </View>
         </Reveal>
+        <View style={[s.row, { alignItems: 'stretch' }]}>
+          {[[`${summary.minutes}m`, 'duration'], [String(summary.sets), 'sets'], [summary.volume >= 1000 ? `${(summary.volume / 1000).toFixed(1)}t` : String(Math.round(summary.volume)), `${unit} volume`]].map(([v, l]) => (
+            <Card key={l} flat style={{ flex: 1, alignItems: 'center', gap: 2, padding: 14 }}>
+              <T size="lg">{v}</T>
+              <T size="sm" muted>{l}</T>
+            </Card>
+          ))}
+        </View>
         {summary.prs.length ? (
-          <Card flat style={{ backgroundColor: C.posSoft, borderColor: 'transparent' }}>
-            <View style={s.row}><Ionicons name="trophy" size={20} color={C.pos} /><T bold color={C.pos}>New personal best</T></View>
-            {summary.prs.map((p) => <T key={p} bold>{p}</T>)}
+          <Card>
+            <View style={s.row}><Ionicons name="trophy-outline" size={20} color={C.accent} /><T bold>{summary.prs.length} personal record{summary.prs.length > 1 ? 's' : ''}</T></View>
+            {summary.prs.map((p) => (
+              <View key={p} style={[s.row, { justifyContent: 'space-between' }]}>
+                <T style={{ flex: 1 }}>{p}</T>
+                <Chip tone="accent" icon="trophy-outline" label="PR" />
+              </View>
+            ))}
           </Card>
         ) : null}
         <Section title="What changes next time">
@@ -393,20 +408,23 @@ export default function Workout() {
   }
 
   if (!draft) {
-    const scale = (k: keyof CheckIn, title: string, low: string, high: string, icon: keyof typeof Ionicons.glyphMap) => (
-      <Card>
-        <View style={s.row}><IconTile name={icon} tone="neutral" size={34} /><T bold>{title}</T></View>
+    const scale = (k: keyof CheckIn, title: string, low: string, high: string) => (
+      <View style={{ gap: 8 }}>
+        <T bold>{title}</T>
         <View style={s.row}>
-          {[1, 2, 3, 4, 5].map((v) => (
-            <Press key={v} accessibilityState={{ selected: checkin[k] === v }} onPress={() => setCheckin({ ...checkin, [k]: v })} scaleTo={0.92}
-              style={{ flex: 1, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
-                backgroundColor: checkin[k] === v ? C.accent : C.sunken }}>
-              <T bold color={checkin[k] === v ? '#fff' : C.text}>{v}</T>
-            </Press>
-          ))}
+          {[1, 2, 3, 4, 5].map((v) => {
+            const on = checkin[k] === v;
+            return (
+              <Press key={v} accessibilityRole="radio" accessibilityLabel={`${title} ${v}`} accessibilityState={{ selected: on }} onPress={() => setCheckin({ ...checkin, [k]: v })} scaleTo={0.94}
+                style={{ flex: 1, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
+                  backgroundColor: on ? C.accent : C.card, borderColor: on ? C.accent : C.border }}>
+                <T bold color={on ? '#fff' : C.text}>{v}</T>
+              </Press>
+            );
+          })}
         </View>
         <View style={[s.row, { justifyContent: 'space-between' }]}><T muted size="sm">{low}</T><T muted size="sm">{high}</T></View>
-      </Card>
+      </View>
     );
     return (
       <Screen>
@@ -415,9 +433,9 @@ export default function Workout() {
           {deload ? <Chip tone="accent" label="Deload week" /> : null}
         </View>
         <View style={{ gap: 6 }}>
-          <T size="micro">Before you start</T>
-          <T size="xl">{day.name}</T>
-          <T muted>A ten-second check-in. If you are run down, Rep Proof adjusts today for you.</T>
+          <Chip tone="accent" label={day.name} />
+          <T size="xl">Quick check-in</T>
+          <T muted>Takes 10 seconds. If you are run down, RepProof adjusts today for you.</T>
         </View>
         {missed ? (
           <Card>
@@ -428,9 +446,9 @@ export default function Workout() {
             ]} />
           </Card>
         ) : null}
-        {scale('sleep', 'Sleep last night', '1 terrible', '5 great', 'moon')}
-        {scale('soreness', 'Soreness', '1 very sore', '5 not sore', 'body')}
-        {scale('energy', 'Energy', '1 drained', '5 great', 'flash')}
+        {scale('sleep', 'Sleep last night', 'Terrible', 'Great')}
+        {scale('soreness', 'Soreness', 'Very sore', 'Not sore')}
+        {scale('energy', 'Energy', 'Drained', 'Great')}
         <View style={{ flex: 1 }} />
         <Button kind="primary" title="Start workout" icon="play" loading={busy} onPress={() => start(checkin)} />
         <Button kind="ghost" title="Skip check-in" disabled={busy} onPress={() => start(null)} />
@@ -460,7 +478,7 @@ export default function Workout() {
       <View style={[s.row, { justifyContent: 'space-between' }]}>
         <IconButton icon="close" label="Discard workout" onPress={quit} />
         <View style={{ flex: 1, gap: 6, paddingHorizontal: 6 }}>
-          <T size="micro" style={{ textAlign: 'center' }}>{day.name} · {logged} of {total} sets</T>
+          <T size="sm" muted style={{ textAlign: 'center' }}>{day.name} · exercise {i + 1} of {draft.items.length} · {logged}/{total} sets</T>
           <ProgressBar value={logged} max={total} />
         </View>
         <IconButton icon="add" label="Add an exercise" onPress={() => setAdding(true)} />
@@ -472,7 +490,7 @@ export default function Workout() {
           const on = k === i;
           return (
             <Pressable key={`${k}-${x.exerciseId}`} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => goto(k)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: on ? C.ink : C.card, borderWidth: 1, borderColor: on ? C.ink : C.border }}>
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: on ? C.accent : C.card, borderWidth: 1, borderColor: on ? C.accent : C.border }}>
               {all ? <Ionicons name="checkmark-circle" size={14} color={on ? '#fff' : C.pos} /> : null}
               <T size="sm" bold color={on ? '#fff' : C.text}>{k + 1}. {EXERCISE_BY_ID[x.exerciseId].name.split(' ').slice(0, 2).join(' ')}</T>
             </Pressable>
@@ -482,45 +500,61 @@ export default function Workout() {
 
       <Reveal key={`${i}-${it.exerciseId}`}>
         <View style={{ gap: 10 }}>
-          <View style={[s.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
-            <View style={{ flex: 1, gap: 4 }}>
-              <T size="micro">{ex.muscle} · {ex.compound ? 'compound' : 'isolation'}</T>
-              <T size="xl">{ex.name}</T>
-            </View>
-            <Why e={it.suggestion.explanation} changed={it.changed} />
+          <View style={{ gap: 2 }}>
+            <T size="sm" muted>{ex.muscle} · {ex.compound ? 'compound' : 'isolation'}</T>
+            <T size="xl">{ex.name}</T>
           </View>
-          <T muted>
-            {w === null ? (isBodyweight(it.exerciseId) ? 'Bodyweight: log added weight (0 if none)' : 'Calibrate: pick your starting weight') : `Target ${w} ${unit}`} · {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps} reps (pinned)` : `${it.suggestion.reps}–${it.planned.repMax} reps`}
-          </T>
-          <T muted size="sm">{effortLabel(it.planned)}</T>
+          <Card variant="tint" style={{ gap: 8 }}>
+            <View style={[s.row, { justifyContent: 'space-between' }]}>
+              <T size="micro">Suggested today</T>
+              <Why e={it.suggestion.explanation} changed={it.changed} />
+            </View>
+            <View style={[s.row, { flexWrap: 'wrap' }]}>
+              <T size="lg">
+                {w === null ? (isBodyweight(it.exerciseId) ? 'Bodyweight' : 'Pick your weight') : `${w} ${unit}`} × {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps}` : `${it.suggestion.reps}–${it.planned.repMax}`}
+              </T>
+              <Chip tone="accent" label={`${it.planned.rirTarget} RIR`} />
+            </View>
+            <T muted size="sm">
+              {w === null ? (isBodyweight(it.exerciseId) ? 'Log added weight (0 if none). ' : 'Calibrate: pick a starting weight. ') : ''}{effortLabel(it.planned)}{it.planned.pinnedReps !== undefined ? ' · reps pinned' : ''}
+            </T>
+          </Card>
         </View>
       </Reveal>
 
       {/* Completed sets */}
       {it.sets.some((r) => r.done) ? (
-        <Card flat style={{ gap: 0, paddingVertical: 6 }}>
+        <Card flat style={{ gap: 8 }}>
+          <View style={s.row}>
+            {['Set', unit, 'Reps', 'RIR', ''].map((h, k) => <T key={k} size="sm" muted style={{ flex: k === 0 ? 0.6 : k === 4 ? 0.7 : 1, textAlign: 'center' }}>{h}</T>)}
+          </View>
           {it.sets.map((r, k) => r.done ? (
-            <Pressable key={k} accessibilityRole="button" accessibilityLabel={`Undo set ${k + 1}`} onPress={() => logSet(i, k)}
-              style={[s.row, { minHeight: 46, justifyContent: 'space-between' }]}>
-              <View style={s.row}>
-                <Ionicons name="checkmark-circle" size={20} color={C.pos} />
-                <T bold>Set {k + 1}</T>
+            <Pressable key={k} accessibilityRole="button" accessibilityLabel={`Set ${k + 1} logged: ${r.weight} ${unit} × ${r.reps}. Tap to edit`} onPress={() => logSet(i, k)} style={s.row}>
+              <T bold style={{ flex: 0.6, textAlign: 'center' }}>{k + 1}</T>
+              {[r.weight, r.reps, r.rir === '' ? '–' : r.rir].map((v, n) => (
+                <View key={n} style={{ flex: 1, minHeight: 44, borderRadius: 12, backgroundColor: C.sunken, alignItems: 'center', justifyContent: 'center' }}>
+                  <T bold>{v}</T>
+                </View>
+              ))}
+              <View style={{ flex: 0.7, alignItems: 'center' }}>
+                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="checkmark" size={18} color="#fff" />
+                </View>
               </View>
-              <T bold>{r.weight} {unit} × {r.reps}</T>
-              <T muted size="sm">{r.rir === '' ? '' : `${r.rir} RIR`}</T>
             </Pressable>
           ) : null)}
+          <T size="sm" muted>Tap a logged set to edit it.</T>
         </Card>
       ) : null}
 
       {/* Rest timer */}
-      {restEnd ? <RestPanel end={restEnd} onDone={() => setRestEnd(null)} next={nextRow ? `${nextRow.weight} ${unit} × ${it.suggestion.reps}–${it.planned.repMax}` : null} rir={rirTarget} /> : null}
+      {restEnd ? <RestPanel end={restEnd} total={ex.compound ? REST.compound : REST.isolation} onAdjust={(sec) => setRestEnd(restEnd + sec * 1000)} onDone={() => setRestEnd(null)} next={nextRow ? `${nextRow.weight} ${unit} × ${it.suggestion.reps}–${it.planned.repMax}` : null} rir={rirTarget} /> : null}
 
       {/* Active set */}
       {setRow ? (
         <Card style={{ gap: 18 }}>
           <View style={[s.row, { justifyContent: 'space-between' }]}>
-            <T size="micro" color={C.accent}>Set {j + 1} of {it.sets.length}</T>
+            <T size="micro">Set {j + 1} of {it.sets.length}</T>
             <T muted size="sm">Target {rirTarget} RIR</T>
           </View>
           <View style={{ gap: 4 }}>
@@ -528,20 +562,20 @@ export default function Workout() {
           </View>
           <View style={{ height: 1, backgroundColor: C.border }} />
           <View style={{ gap: 8 }}>
-            <T size="micro">Reps</T>
+            <T bold>Reps</T>
             <Stepper value={setRow.reps} onChange={(v) => patch('reps', v)} step={1} min={1} />
           </View>
           <View style={{ gap: 8 }}>
             <View style={[s.row, { justifyContent: 'space-between' }]}>
-              <T size="micro">Reps in reserve (RIR)</T>
+              <T bold>Reps in reserve (RIR)</T>
               <T muted size="sm">How many more could you do?</T>
             </View>
             <View style={s.row}>
               {['0', '1', '2', '3', '4'].map((v) => {
                 const on = setRow.rir === v;
                 return (
-                  <Press key={v} accessibilityState={{ selected: on }} onPress={() => patch('rir', v)} scaleTo={0.92}
-                    style={{ flex: 1, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.accent : C.sunken }}>
+                  <Press key={v} accessibilityRole="radio" accessibilityLabel={`${v === '4' ? '4 or more' : v} reps in reserve`} accessibilityState={{ selected: on }} onPress={() => patch('rir', v)} scaleTo={0.94}
+                    style={{ flex: 1, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, backgroundColor: on ? C.accent : C.card, borderColor: on ? C.accent : C.border }}>
                     <T bold color={on ? '#fff' : C.text}>{v === '4' ? '4+' : v}</T>
                   </Press>
                 );
@@ -557,9 +591,9 @@ export default function Workout() {
       {/* After the last set: the recommendation */}
       {rec ? (
         <Reveal>
-          <Card flat style={{ backgroundColor: C.accentSoft, borderColor: 'transparent' }}>
+          <Card variant="tint">
             <View style={[s.row, { justifyContent: 'space-between' }]}>
-              <T size="micro" color={C.accent}>Rep Proof recommendation</T>
+              <T size="micro">Next session</T>
               <Badge label={rec.explanation.label} />
             </View>
             {fb ? <T bold color={C.pos}>{fb}</T> : null}
@@ -588,8 +622,8 @@ export default function Workout() {
         </Pressable>
         {cues ? ex.cues.map((c) => <T key={c} muted size="sm">• {c}</T>) : null}
         <View style={s.row}>
-          <Button title="Swap" icon="swap-horizontal" style={{ flex: 1, minHeight: 44 }} onPress={() => setSwapFor(i)} />
-          <Button title="Pain" icon="warning" kind="danger" style={{ flex: 1, minHeight: 44 }} onPress={() => pain(i)} />
+          <Button title="Swap" icon="swap-horizontal" size="sm" style={{ flex: 1 }} onPress={() => setSwapFor(i)} />
+          <Button title="Pain stop" icon="alert-circle-outline" size="sm" style={{ flex: 1 }} onPress={() => pain(i)} />
           <IconButton icon="arrow-up" label="Move up" onPress={() => { move(i, -1); if (i > 0) setCur(i - 1); }} />
           <IconButton icon="arrow-down" label="Move down" onPress={() => { move(i, 1); if (i < draft.items.length - 1) setCur(i + 1); }} />
         </View>
@@ -642,28 +676,43 @@ export default function Workout() {
   );
 }
 
-function RestPanel({ end, onDone, next, rir }: { end: number; onDone: () => void; next: string | null; rir: number }) {
+function RestPanel({ end, total, onAdjust, onDone, next, rir }: { end: number; total: number; onAdjust: (sec: number) => void; onDone: () => void; next: string | null; rir: number }) {
   const [now, setNow] = useState(clock);
   useEffect(() => {
     const t = setInterval(() => setNow(clock()), 500);
     return () => clearInterval(t);
   }, []);
   const left = Math.max(0, Math.ceil((end - now) / 1000));
+  const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  // Board 05 · 06 Rest timer: big countdown, progress, ±15 s, up next, skip.
   return (
-    <Card style={{ alignItems: 'center', gap: 10, borderColor: left ? C.border : C.accent }}>
-      <View style={[s.row, { alignSelf: 'stretch', justifyContent: 'space-between' }]}>
-        <T size="micro">{left ? 'Rest timer' : 'Rest done'}</T>
+    <Card style={{ gap: 12 }}>
+      <View style={[s.row, { justifyContent: 'space-between' }]}>
+        <T size="micro">{left ? 'Rest' : 'Rest done'}</T>
         <Why e={REST_WHY} />
       </View>
-      <T size="display" color={left ? C.text : C.accent}>{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</T>
-      {next ? (
-        <View style={{ alignItems: 'center', gap: 2 }}>
-          <T size="micro">Next set</T>
-          <T bold>{next}</T>
-          <T muted size="sm">Target {rir === 0 ? 'failure' : `${rir}${rir < 4 ? '–' + (rir + 1) : '+'} RIR`}</T>
+      <View style={{ alignItems: 'center', gap: 2 }} accessibilityLabel={`Rest: ${fmt(left)} left of ${fmt(total)}`}>
+        <T size="display" color={left ? C.text : C.accent} style={{ fontVariant: ['tabular-nums'] }}>{fmt(left)}</T>
+        <T size="sm" muted>of {fmt(total)}</T>
+      </View>
+      <ProgressBar value={total - left} max={total} />
+      <T size="sm" muted style={{ textAlign: 'center' }}>{total >= 120 ? 'Compound lifts do best with 2 to 3 minutes of rest.' : 'Isolation lifts need about 1 to 2 minutes.'}</T>
+      {left ? (
+        <View style={s.row}>
+          <Button title="−15 s" kind="outline" size="sm" style={{ flex: 1 }} onPress={() => onAdjust(-15)} />
+          <Button title="+15 s" kind="outline" size="sm" style={{ flex: 1 }} onPress={() => onAdjust(15)} />
         </View>
       ) : null}
-      <Button title={left ? 'Skip rest' : 'Start next set'} kind={left ? 'secondary' : 'primary'} onPress={onDone} style={{ alignSelf: 'stretch' }} />
+      {next ? (
+        <Card flat style={{ padding: 14, gap: 2 }}>
+          <T size="sm" muted>Up next</T>
+          <View style={[s.row, { justifyContent: 'space-between' }]}>
+            <T bold>{next}</T>
+            <T muted size="sm">Target {rir === 0 ? 'failure' : `${rir}${rir < 4 ? '–' + (rir + 1) : '+'} RIR`}</T>
+          </View>
+        </Card>
+      ) : null}
+      <Button title={left ? 'Skip rest' : 'Start next set'} kind="primary" onPress={onDone} />
     </Card>
   );
 }

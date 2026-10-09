@@ -38,7 +38,7 @@ export default function Volume() {
   return (
     <Screen edges={['bottom']}>
       <Header kicker="Volume management" title="Weekly volume" />
-      <T muted>Hard sets per muscle per week. The shaded band is your current productive range, a Rep Proof estimate for your experience level, not a fixed law.</T>
+      <T muted>Hard sets per muscle per week. The shaded band is your current productive range, a RepProof estimate for your experience level, not a fixed law.</T>
       <Segmented value={mode} onChange={setMode} options={[{ value: 'planned', label: 'Planned' }, { value: 'logged', label: 'Logged this week' }]} />
       <View style={{ gap: 14 }}>
         {rows.map((m) => {
@@ -64,7 +64,7 @@ export default function Volume() {
           <T bold>How to read this</T>
           <Badge label="rule" />
         </View>
-        <T muted>Rep Proof estimates a productive range from your training experience and adjusts the message when your performance stalls or recovery drops. Below the range, you may be able to add a set. Above it, hold steady if progress has slowed.</T>
+        <T muted>RepProof estimates a productive range from your training experience and adjusts the message when your performance stalls or recovery drops. Below the range, you may be able to add a set. Above it, hold steady if progress has slowed.</T>
         <T muted size="sm">Based on your recent performance. Individual response varies.</T>
       </Card>
     </Screen>

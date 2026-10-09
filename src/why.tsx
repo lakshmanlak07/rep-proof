@@ -11,9 +11,9 @@ import { track } from '@/lib/data';
 import { Button, C, Card, Chip, IconTile, Sheet, T, type Tone } from '@/ui';
 
 export const LABELS: Record<EvidenceLabel, { title: string; short: string; hint: string; tone: Tone; icon: keyof typeof Ionicons.glyphMap }> = {
-  direct: { title: 'Direct evidence', short: 'Direct evidence', hint: 'Supported directly by high-quality research.', tone: 'pos', icon: 'flask' },
-  principle: { title: 'Principle-based', short: 'Principle-based', hint: 'A practical recommendation derived from several evidence-based principles. Sensible, but not itself tested as a universal rule.', tone: 'accent', icon: 'git-merge' },
-  rule: { title: 'Rep Proof rule', short: 'Rep Proof rule', hint: 'A product decision Rep Proof made to turn the evidence into something actionable. Not a scientific finding, and we say so.', tone: 'neutral', icon: 'construct' },
+  direct: { title: 'Direct evidence', short: 'Direct evidence', hint: 'Supported directly by high-quality research.', tone: 'direct', icon: 'checkmark' },
+  principle: { title: 'Principle-based', short: 'Principle-based', hint: 'A practical recommendation derived from several evidence-based principles. Sensible, but not itself tested as a universal rule.', tone: 'principle', icon: 'bulb-outline' },
+  rule: { title: 'RepProof rule', short: 'RepProof rule', hint: 'A product decision RepProof made to turn the evidence into something actionable. Not a scientific finding, and we say so.', tone: 'rule', icon: 'shield-checkmark-outline' },
 };
 
 /** Subtle evidence chip. Tapping it anywhere that wraps it in <Why/> opens the explanation. */
@@ -73,7 +73,7 @@ export function Why({ e, changed }: { e: Explanation; changed?: boolean }) {
 }
 
 /**
- * The signature Rep Proof explanation: what we see, why it matters, what to do.
+ * The signature RepProof explanation: what we see, why it matters, what to do.
  * Recommendations are never a black box.
  */
 export function InsightCard({ kicker, icon = 'bulb', tone = 'accent', see, why, todo, evidence, refIds }: {

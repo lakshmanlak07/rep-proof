@@ -1,15 +1,23 @@
 import 'expo-sqlite/localStorage/install';
 
+import { BricolageGrotesque_700Bold } from '@expo-google-fonts/bricolage-grotesque';
+import { DMSans_400Regular, DMSans_500Medium, DMSans_700Bold } from '@expo-google-fonts/dm-sans';
+import { useFonts } from 'expo-font';
 import { DefaultTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
 import { DataProvider, useData } from '@/lib/data';
+import { font } from '@/theme/tokens';
 import { Button, C, Loading, Screen, T } from '@/ui';
 
+// Keep the splash screen up until the design fonts are ready (or have failed: then system fonts are used).
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 const theme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: C.bg, card: C.bg, text: C.text, primary: C.accent, border: C.border } };
-const pushed = { headerShown: true, headerShadowVisible: false, headerStyle: { backgroundColor: C.bg }, headerTintColor: C.text, headerBackButtonDisplayMode: 'minimal' as const, headerTitleStyle: { fontWeight: '700' as const } };
+const pushed = { headerShown: true, headerShadowVisible: false, headerStyle: { backgroundColor: C.bg }, headerTintColor: C.text, headerBackButtonDisplayMode: 'minimal' as const, headerTitleStyle: { fontFamily: font.bodyBold } };
 
 function Routes() {
   const { session, profile, program, loading, failed, refresh } = useData();
@@ -77,6 +85,12 @@ export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({ BricolageGrotesque_700Bold, DMSans_400Regular, DMSans_500Medium, DMSans_700Bold });
+  const fontsDone = fontsLoaded || !!fontError;
+  useEffect(() => {
+    if (fontsDone) SplashScreen.hideAsync().catch(() => {});
+  }, [fontsDone]);
+  if (!fontsDone) return null; // splash screen still showing
   return (
     <ThemeProvider value={theme}>
       <StatusBar style="dark" />

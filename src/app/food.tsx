@@ -6,11 +6,11 @@ import { ActivityIndicator, Modal, Pressable, View } from 'react-native';
 import { alert, attempt } from '@/lib/alert';
 import { track } from '@/lib/data';
 import {
-  FoodError, addLogs, byBarcode, deleteSavedMeal, fdcIdOf, forGrams, recentFoods, savedMeals, searchFoods, type Food, type Meal, type SavedMeal,
+  FoodError, MEALS, addLogs, byBarcode, deleteSavedMeal, fdcIdOf, forGrams, recentFoods, savedMeals, searchFoods, type Food, type Meal, type SavedMeal,
 } from '@/lib/food';
 import { leave } from '@/lib/nav';
 import { sourceLabel, toGrams, type PortionUnit } from '@/lib/portion';
-import { Button, C, Card, Choice, Field, s, Screen, T } from '@/ui';
+import { Banner, Button, C, Card, Chip, Field, s, Screen, Segmented, Sheet, T } from '@/ui';
 
 export default function AddFood() {
   const { meal = 'snack' } = useLocalSearchParams<{ meal?: Meal }>();
@@ -26,6 +26,7 @@ export default function AddFood() {
   const [recent, setRecent] = useState<Food[]>([]);
   const [scanning, setScanning] = useState(false);
   const [custom, setCustom] = useState(false);
+  const [mealChoice, setMealChoice] = useState<Meal>(meal);
 
   useEffect(() => {
     savedMeals().then(setSaved).catch(() => {});
@@ -56,8 +57,8 @@ export default function AddFood() {
   }
 
   async function log(food: Food, g: number) {
-    if (!(await attempt(() => addLogs(meal, [{ fdc_id: fdcIdOf(food), name: food.name, grams: g, ...forGrams(food.per100, g) }]), 'add that food'))) return;
-    track('food_logged', { meal, source: food.source });
+    if (!(await attempt(() => addLogs(mealChoice, [{ fdc_id: fdcIdOf(food), name: food.name, grams: g, ...forGrams(food.per100, g) }]), 'add that food'))) return;
+    track('food_logged', { meal: mealChoice, source: food.source });
     leave();
   }
 
@@ -75,32 +76,43 @@ export default function AddFood() {
 
   return (
     <Screen edges={['bottom']}>
-      <Stack.Screen options={{ title: `Add to ${meal}` }} />
-      <Button kind="primary" title="Scan a barcode" onPress={() => setScanning(true)} />
+      <Stack.Screen options={{ title: `Add to ${MEAL_LABEL[meal]}` }} />
       <View style={s.row}>
         <View style={{ flex: 1 }}>
-          <Field placeholder="Search any food, e.g. oats" value={query} onChangeText={setQuery} maxLength={100} returnKeyType="search" onSubmitEditing={search} />
+          <Field placeholder="Search foods, e.g. oats" accessibilityLabel="Search foods" value={query} onChangeText={setQuery} maxLength={100} returnKeyType="search" onSubmitEditing={search} />
         </View>
-        <Button title="Search" disabled={!query.trim()} loading={busy} onPress={search} />
+        <Button kind="primary" size="sm" icon="search" title="Search" disabled={!query.trim()} loading={busy} onPress={search} style={{ minHeight: 52 }} />
       </View>
+      <Button kind="secondary" size="sm" icon="barcode-outline" title="Scan a barcode" onPress={() => setScanning(true)} />
 
       {busy ? <ActivityIndicator color={C.accent} /> : null}
-      {notice ? <Card><T muted>{notice}</T></Card> : null}
+      {notice ? <Banner text={notice} /> : null}
       {notFound ? (
         <Card>
           <T>{notFound}</T>
           <Button title="Add it as a custom food" onPress={() => setCustom(true)} />
         </Card>
       ) : null}
-      {results?.map((f) => (
-        <Pressable key={`${f.source}-${f.id}-${f.name}`} onPress={() => pick(f)} accessibilityRole="button">
-          <Card>
-            <T bold>{f.name}</T>
-            <T muted size="sm">{f.brand && f.source !== 'custom' ? `${f.brand} · ` : ''}{Math.round(f.per100.kcal)} kcal · {Math.round(f.per100.protein * 10) / 10} g protein per 100 g</T>
-            <T muted size="micro">{sourceLabel(f)}</T>
-          </Card>
-        </Pressable>
-      ))}
+      {results ? GROUPS.map((g) => {
+        const rows = results.filter(g.match);
+        return rows.length ? (
+          <View key={g.title} style={{ gap: 6 }}>
+            <T size="micro">{g.title}</T>
+            <Card flat style={{ gap: 0, paddingVertical: 4 }}>
+              {rows.map((f, k) => (
+                <Pressable key={`${f.source}-${f.id}-${f.name}`} onPress={() => pick(f)} accessibilityRole="button" accessibilityLabel={`${f.name}, ${Math.round(f.per100.kcal)} kilocalories per 100 grams, ${sourceLabel(f)}`}
+                  style={[s.row, { minHeight: 56, paddingVertical: 8, borderTopWidth: k ? 1 : 0, borderTopColor: C.border }]}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <T bold numberOfLines={2}>{f.name}</T>
+                    <T muted size="sm" numberOfLines={1}>{f.brand && f.source !== 'custom' ? `${f.brand} · ` : ''}{Math.round(f.per100.kcal)} kcal · {Math.round(f.per100.protein * 10) / 10} g protein per 100 g</T>
+                  </View>
+                  <SourceBadge f={f} />
+                </Pressable>
+              ))}
+            </Card>
+          </View>
+        ) : null;
+      }) : null}
 
       {!results && recent.length ? (<>
         <T bold>Recent</T>
@@ -130,23 +142,32 @@ export default function AddFood() {
       <Button kind="ghost" title={"Can't find it? Add a custom food"} onPress={() => setCustom(true)} />
       <T muted size="sm">Food data: built-in common foods (typical USDA reference values), USDA FoodData Central (public domain) and Open Food Facts (ODbL). Check labels; databases can contain errors.</T>
 
-      <Modal visible={!!picked} transparent animationType="slide" onRequestClose={() => setPicked(null)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setPicked(null)} accessibilityRole="button" accessibilityLabel="Close" />
-        {picked && m ? (
-          <Card style={sheet}>
-            <T size="lg">{picked.name}</T>
-            <T muted size="sm">{sourceLabel(picked)}{picked.brand && picked.source !== 'custom' ? ` · ${picked.brand}` : ''}</T>
-            <Choice value={unit} onChange={setUnit} options={[
-              { value: 'g', label: 'Grams' },
-              { value: 'oz', label: 'Ounces' },
-              ...(picked.servingGrams ? [{ value: 'serving' as const, label: 'Servings', hint: `1 serving = ${picked.servingGrams} g` }] : []),
-            ]} />
-            <Field label={unit === 'g' ? 'Amount (g)' : unit === 'oz' ? 'Amount (oz)' : 'Servings'} keyboardType="decimal-pad" value={amount} onChangeText={setAmount} />
-            <T>{grams ? `${grams} g · ` : ''}{m.kcal} kcal · {m.protein} g protein · {m.fat} g fat · {m.carbs} g carbs</T>
-            <Button kind="primary" title="Add" disabled={!grams} onPress={() => grams && log(picked, grams)} />
-          </Card>
-        ) : null}
-      </Modal>
+      <Sheet visible={!!picked} onClose={() => setPicked(null)} title={picked?.name}>
+        {picked && m ? (<>
+          <View style={[s.row, { flexWrap: 'wrap', gap: 8 }]}>
+            <SourceBadge f={picked} />
+            <T size="sm" muted>per 100 g: {Math.round(picked.per100.kcal)} kcal{picked.brand && picked.source !== 'custom' ? ` · ${picked.brand}` : ''}</T>
+          </View>
+          <Field label={unit === 'g' ? 'Amount (g)' : unit === 'oz' ? 'Amount (oz)' : 'Servings'} keyboardType="decimal-pad" value={amount} onChangeText={setAmount} />
+          <Segmented value={unit} onChange={setUnit} options={[
+            { value: 'g', label: 'Grams' },
+            { value: 'oz', label: 'Ounces' },
+            ...(picked.servingGrams ? [{ value: 'serving' as const, label: `Serving (${picked.servingGrams} g)` }] : []),
+          ]} />
+          <T bold>Meal</T>
+          <Segmented value={mealChoice} onChange={setMealChoice} options={MEALS.map((x) => ({ value: x, label: MEAL_LABEL[x] }))} />
+          <View style={[s.row, { backgroundColor: C.accentSoft, borderRadius: 16, padding: 14, justifyContent: 'space-between' }]}
+            accessibilityLabel={`${grams ?? 0} grams: ${m.kcal} kilocalories, ${m.protein} grams protein, ${m.carbs} grams carbs, ${m.fat} grams fat`}>
+            {([['Kcal', `${m.kcal}`], ['Protein', `${m.protein} g`], ['Carbs', `${m.carbs} g`], ['Fat', `${m.fat} g`]] as const).map(([l, v]) => (
+              <View key={l} style={{ gap: 2 }}>
+                <T size="micro">{l}</T>
+                <T size="lg">{v}</T>
+              </View>
+            ))}
+          </View>
+          <Button kind="primary" title={`Add to ${MEAL_LABEL[mealChoice]}`} disabled={!grams} onPress={() => grams && log(picked, grams)} />
+        </>) : null}
+      </Sheet>
 
       <Modal visible={custom} transparent animationType="slide" onRequestClose={() => setCustom(false)}>
         <Pressable style={{ flex: 1, backgroundColor: '#000a' }} onPress={() => setCustom(false)} accessibilityRole="button" accessibilityLabel="Close" />
@@ -160,7 +181,19 @@ export default function AddFood() {
   );
 }
 
-const sheet = { borderRadius: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 };
+const sheet = { borderRadius: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: 40 };
+const MEAL_LABEL: Record<Meal, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack' };
+const isCommon = (f: Food) => f.source === 'custom' && f.id.startsWith('common-');
+const GROUPS: { title: string; match: (f: Food) => boolean }[] = [
+  { title: 'Common foods', match: (f) => isCommon(f) || f.source === 'usda' },
+  { title: 'Packaged', match: (f) => f.source === 'off' },
+  { title: 'My foods', match: (f) => f.source === 'custom' && !isCommon(f) },
+];
+/** Source badge (Board 02): text label chip for where a food's numbers come from. */
+function SourceBadge({ f }: { f: Food }) {
+  const short = f.source === 'usda' ? 'USDA' : f.source === 'off' ? 'Open Food Facts' : isCommon(f) ? 'Common food' : 'Custom';
+  return <Chip label={short} tone={f.source === 'off' ? 'warn' : 'neutral'} />;
+}
 
 /** Anything missing from the databases: macros for the amount eaten. Shows up under Recent afterwards. */
 function CustomFood({ initialName, onAdd, onCancel }: { initialName: string; onAdd: (f: Food, grams: number) => void; onCancel: () => void }) {

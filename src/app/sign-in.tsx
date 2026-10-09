@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
@@ -106,7 +107,7 @@ export default function SignIn() {
   if (confirming) {
     return (
       <Screen>
-        <T size="lg">Confirm your email</T>
+        <T size="xl">Confirm your email</T>
         {info ? <T muted>{info}</T> : null}
         <Field label="Code from the email" keyboardType="number-pad" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={10}
           value={code} onChangeText={(t) => setCode(cleanCode(t))} />
@@ -123,7 +124,16 @@ export default function SignIn() {
 
   return (
     <Screen>
-      <T size="lg">{method === 'phone' ? 'Continue with your phone' : signUp ? 'Create your account' : 'Sign in'}</T>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="heart-outline" size={20} color="#fff" />
+        </View>
+        <T size="lg" color={C.accent}>RepProof</T>
+      </View>
+      <View style={{ gap: 6 }}>
+        <T size="xl">{method === 'phone' ? 'Continue with your phone' : signUp ? 'Create your account' : 'Welcome back.'}</T>
+        <T muted>{signUp ? 'Your plan, logs and targets, saved to your account.' : 'Sign in to pick up where you left off.'}</T>
+      </View>
       <Choice value={method} onChange={(m) => { setMethod(m); setError(''); }} options={[
         { value: 'email', label: 'Email and password' },
         { value: 'phone', label: 'Mobile number', hint: 'We text you a code' },

@@ -22,7 +22,7 @@ export default function Insights() {
   const items = [...(notes?.decisions ?? [])].sort((a, b) => rank(a.kind) - rank(b.kind)).map(insightFromDecision);
   return (
     <Screen edges={['bottom']}>
-      <Header kicker="Your coach" title="Rep Proof insights" />
+      <Header kicker="Your coach" title="RepProof insights" />
       <T muted>What the data shows, why it matters and what to do about it. Every recommendation carries its evidence label.</T>
       <Card>
         <View style={[s.row, { justifyContent: 'space-between' }]}>
@@ -39,7 +39,7 @@ export default function Insights() {
         <Section title="By exercise">
           {items.map((i) => <InsightCard key={i.name} kicker={`${i.kicker} · ${i.name}`} icon={i.icon} tone={i.tone} see={i.see} why={i.why} todo={i.todo} evidence={i.evidence} refIds={i.refIds} />)}
         </Section>
-      ) : <Empty icon="bulb" title="Insights appear after your first workouts" body="Rep Proof compares sessions to tell you whether to add weight, add a set, swap an exercise or hold steady." />}
+      ) : <Empty icon="bulb" title="Insights appear after your first workouts" body="RepProof compares sessions to tell you whether to add weight, add a set, swap an exercise or hold steady." />}
     </Screen>
   );
 }

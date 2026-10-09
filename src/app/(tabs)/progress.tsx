@@ -8,7 +8,7 @@ import type { Muscle } from '@/engine/types.ts';
 import { bodyweightHistory, localDate, logBodyweight, must, ok, track, useData, type WeighIn } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
 import { attempt } from '@/lib/alert';
-import { Button, C, Card, Chip, Choice, Field, Header, IconTile, LineChart, Pill, Screen, Section, Segmented, Stat, s, T } from '@/ui';
+import { Button, C, Card, Chip, Choice, Empty, Field, Header, IconTile, LineChart, Pill, Screen, Section, Segmented, Stat, s, T } from '@/ui';
 import { newBests } from '@/lib/stats';
 import { MUSCLE_LABEL, pct } from '@/lib/insights';
 
@@ -128,13 +128,16 @@ export default function Progress() {
           <Button title="Try again" onPress={reload} />
         </Card>
       ) : workouts === null ? <ActivityIndicator color={C.accent} /> : null}
-      {workouts && !workouts.length ? <T muted>Finish your first workout to see it here.</T> : null}
+      {workouts && !workouts.length ? (
+        <Card flat>
+          <Empty icon="trending-up-outline" title="Your strength trend starts after 2 workouts" body="Log a session and you'll see how your lifts change over time."
+            action="Start a workout" onAction={() => router.push('/workout')} />
+        </Card>
+      ) : null}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-        {([['strength', 'Strength'], ['hypertrophy', 'Hypertrophy'], ['volume', 'Volume'], ['bodyweight', 'Bodyweight']] as const).map(([v, l]) => (
-          <Pill key={v} label={l} on={view === v} onPress={() => setView(v)} />
-        ))}
-      </ScrollView>
+      <Segmented value={view} onChange={setView} options={[
+        { value: 'strength', label: 'Strength' }, { value: 'hypertrophy', label: 'Load' }, { value: 'volume', label: 'Sets' }, { value: 'bodyweight', label: 'Body' },
+      ]} />
 
       {view === 'strength' && lifts.length ? (<>
         <View style={[s.row, { alignItems: 'stretch', flexWrap: 'wrap' }]}>
@@ -199,6 +202,7 @@ export default function Progress() {
       {view === 'bodyweight' ? (
         <Card>
           {weighIns === null ? <T muted size="sm">Bodyweight tracking needs the latest database update (see README, migration 3).</T> : null}
+          {weighIns && !weighIns.length ? <Empty icon="scale-outline" title="No bodyweight yet" body="Weigh in a few times a week and we'll show the trend, not the daily noise." /> : null}
           {weighIns?.length ? (<>
             <Stat label="Bodyweight" value={weighIns[weighIns.length - 1].weight} unit={unit} delta={weighIns.length > 1 ? `${(weighIns[weighIns.length - 1].weight - weighIns[0].weight).toFixed(1)} ${unit} since ${weighIns[0].logged_on}` : undefined} tone="neutral" />
             <LineChart values={weighIns.slice(-30).map((x) => x.weight)} label="Bodyweight" />
@@ -213,19 +217,18 @@ export default function Progress() {
 
       {bests.length ? (
         <Section title="Personal records">
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
-            {bests.slice(0, 8).map((b) => (
-              <Card key={`${b.exerciseId}-${b.at}`} style={{ width: 200, gap: 6 }}>
-                <IconTile name="trophy" tone="warn" size={34} />
-                <T size="micro" numberOfLines={1}>{name(b.exerciseId)}</T>
-                <T size="xl">{b.weight} <T muted size="sm">{unit}</T></T>
-                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                  <Chip tone="pos" icon="arrow-up" label={`+${Math.round((b.weight - b.previous) * 10) / 10}`} />
-                  <T muted size="sm">{new Date(b.at).toLocaleDateString()}</T>
+          <Card flat style={{ gap: 0, paddingVertical: 4 }}>
+            {bests.slice(0, 8).map((b, k) => (
+              <View key={`${b.exerciseId}-${b.at}`} style={[s.row, { minHeight: 60, borderTopWidth: k ? 1 : 0, borderTopColor: C.border }]}>
+                <IconTile name="trophy-outline" size={36} />
+                <View style={{ flex: 1 }}>
+                  <T bold numberOfLines={1}>{name(b.exerciseId)}</T>
+                  <T muted size="sm">{b.weight} {unit} · +{Math.round((b.weight - b.previous) * 10) / 10} {unit} · {new Date(b.at).toLocaleDateString()}</T>
                 </View>
-              </Card>
+                <Chip tone="accent" icon="trophy-outline" label="PR" />
+              </View>
             ))}
-          </ScrollView>
+          </Card>
         </Section>
       ) : null}
 
@@ -261,16 +264,18 @@ export default function Progress() {
       </Section>
 
       {workouts?.length ? (
-        <Section title="History">
-          {workouts.map((w) => (
-            <Card key={w.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View>
-                <T bold>{w.day_name}</T>
-                <T muted size="sm">{new Date(w.finished_at).toLocaleDateString()}</T>
+        <Section title="Workout history">
+          <Card flat style={{ gap: 0, paddingVertical: 4 }}>
+            {workouts.map((w, k) => (
+              <View key={w.id} style={[s.row, { minHeight: 60, borderTopWidth: k ? 1 : 0, borderTopColor: C.border }]}>
+                <IconTile name="barbell-outline" size={36} />
+                <View style={{ flex: 1 }}>
+                  <T bold>{w.day_name}</T>
+                  <T muted size="sm">{new Date(w.finished_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {w.logged_sets[0]?.count ?? 0} sets</T>
+                </View>
               </View>
-              <T muted>{w.logged_sets[0]?.count ?? 0} sets</T>
-            </Card>
-          ))}
+            ))}
+          </Card>
         </Section>
       ) : null}
     </Screen>

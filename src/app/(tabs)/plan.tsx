@@ -96,7 +96,7 @@ export default function Plan() {
             );
           })}
         </View>
-        <T muted size="sm">Suggested layout. Rep Proof follows your order, so a missed day just shifts the week.</T>
+        <T muted size="sm">Suggested layout. RepProof follows your order, so a missed day just shifts the week.</T>
       </Section>
 
       <Section title="Volume this week" action="Details" onAction={() => router.push('/volume')}>

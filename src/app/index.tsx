@@ -2,43 +2,42 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { View } from 'react-native';
 
-import { MOTTO, POSITIONING } from '@/engine/science.ts';
-import { Button, C, IconTile, Reveal, Screen, T } from '@/ui';
-import { Badge } from '@/why';
+import { Button, C, Card, IconTile, Reveal, Screen, T } from '@/ui';
 
-const LOOP = [
-  { icon: 'barbell', label: 'Train' }, { icon: 'create', label: 'Record' }, { icon: 'bulb', label: 'Interpret' }, { icon: 'options', label: 'Adjust' },
+// Board 04 · 01 Welcome.
+const POINTS = [
+  { icon: 'book-outline', text: 'Every suggestion shows its source.' },
+  { icon: 'flash-outline', text: 'Weights and reps adjust as you improve.' },
+  { icon: 'restaurant-outline', text: 'Simple nutrition targets you can edit.' },
 ] as const;
 
 export default function Welcome() {
   return (
     <Screen scroll={false}>
-      <View style={{ flex: 1, justifyContent: 'center', gap: 28 }}>
-        <Reveal>
-          <View style={{ gap: 14 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="checkmark" size={24} color="#fff" />
-              </View>
-              <T size="lg">Rep Proof</T>
-            </View>
-            <T size="display">Train with{'\n'}the reasons.</T>
-            <T muted>{POSITIONING} Rep Proof builds your plan, learns from how you actually lift and recover, and tells you what to do next, always with the why.</T>
+      <View style={{ flex: 1, gap: 20 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="heart-outline" size={20} color="#fff" />
           </View>
+          <T size="lg" color={C.accent}>RepProof</T>
+        </View>
+        <Reveal>
+          <Card variant="hero" style={{ height: 180, justifyContent: 'flex-end', overflow: 'hidden' }}>
+            <View style={{ position: 'absolute', right: -40, top: -40, width: 170, height: 170, borderRadius: 85, backgroundColor: 'rgba(255,255,255,0.10)' }} />
+            <View style={{ position: 'absolute', right: 30, top: 24, width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="barbell-outline" size={28} color="#fff" />
+            </View>
+            <T size="lg" color="#fff">Progressive overload,{'\n'}explained.</T>
+          </Card>
         </Reveal>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          {LOOP.map((l) => (
-            <View key={l.label} style={{ alignItems: 'center', gap: 6 }}>
-              <IconTile name={l.icon} tone="accent" size={46} />
-              <T size="micro">{l.label}</T>
+        <T size="xl">Lift with a plan you can check.</T>
+        <View style={{ gap: 12 }}>
+          {POINTS.map((p) => (
+            <View key={p.text} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <IconTile name={p.icon} size={32} />
+              <T muted style={{ flex: 1 }}>{p.text}</T>
             </View>
           ))}
-        </View>
-        <View style={{ gap: 8 }}>
-          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-            <Badge label="direct" /><Badge label="principle" /><Badge label="rule" />
-          </View>
-          <T muted size="sm">{MOTTO}</T>
         </View>
       </View>
       <Button kind="primary" title="Get started" onPress={() => router.push('/age')} />

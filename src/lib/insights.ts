@@ -1,5 +1,5 @@
-// Presentation logic for Rep Proof's coaching surfaces. Pure functions over engine output and logged data.
-// Nothing here claims scientific certainty: ranges are "Rep Proof estimates" based on experience and recent performance.
+// Presentation logic for RepProof's coaching surfaces. Pure functions over engine output and logged data.
+// Nothing here claims scientific certainty: ranges are "RepProof estimates" based on experience and recent performance.
 import type Ionicons from '@expo/vector-icons/Ionicons';
 import type { Decision } from '@/engine/decisions.ts';
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
@@ -8,7 +8,7 @@ import type { Tone } from '@/ui';
 
 export type VolumeStatus = 'low' | 'productive' | 'high';
 
-/** Rep Proof estimate of a currently productive weekly hard-set range. Starting point only; individual response decides. */
+/** RepProof estimate of a currently productive weekly hard-set range. Starting point only; individual response decides. */
 export function productiveRange(experience: Experience): [number, number] {
   return experience === 'beginner' ? [6, 12] : experience === 'intermediate' ? [8, 16] : [10, 20];
 }

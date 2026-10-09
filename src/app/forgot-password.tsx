@@ -75,7 +75,7 @@ export default function ForgotPassword() {
   if (step === 'email') {
     return (
       <Screen>
-        <T size="lg">Reset your password</T>
+        <T size="xl">Reset your password</T>
         <T muted>Enter the email you signed up with. We will send you a code.</T>
         <Field label="Email" autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={email} onChangeText={setEmail} />
         {error ? <T style={{ color: C.danger }}>{error}</T> : null}
@@ -89,7 +89,7 @@ export default function ForgotPassword() {
 
   return (
     <Screen>
-      <T size="lg">Choose a new password</T>
+      <T size="xl">Choose a new password</T>
       <T muted>{info}</T>
       <Field label="Code from the email" keyboardType="number-pad" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={10}
         value={code} onChangeText={(t) => { setCode(cleanCode(t)); verified.current = null; }} />

@@ -8,7 +8,7 @@ import { clearPending, DISCLAIMER, getPending, isAdult, setPending } from '@/lib
 import { supabase } from '@/lib/supabase';
 import { AVOID_OPTIONS, EFFORT_OPTIONS, EXPERIENCE_OPTIONS, GOAL_OPTIONS, MINUTE_OPTIONS, MUSCLE_OPTIONS, SETUP_OPTIONS } from '@/lib/options';
 import { friendlyError } from '@/lib/alert';
-import { Button, C, Card, Choice, Field, IconButton, IconTile, ProgressBar, Reveal, Screen, T } from '@/ui';
+import { Button, C, Card, Choice, Field, IconTile, Reveal, Screen, StepProgress, T } from '@/ui';
 
 const STEPS = ['experience', 'setup', 'goal', 'days', 'minutes', 'body', 'height', 'sex', 'avoid', 'weak', 'strong', 'effort', 'split'] as const;
 
@@ -77,7 +77,7 @@ export default function Onboarding() {
           <Reveal>
             <View style={{ gap: 14 }}>
               <IconTile name="sparkles" size={56} />
-              <T size="micro">Your Rep Proof plan</T>
+              <T size="micro">Your RepProof plan</T>
               <T size="xl">Your starting plan is ready.</T>
               <T muted>Based on your goals, availability and training experience, we&apos;ve built your starting plan. It adapts as you log sessions, and every change comes with the reason.</T>
             </View>
@@ -92,14 +92,7 @@ export default function Onboarding() {
     );
   }
 
-  const back = step > 0 ? <IconButton icon="chevron-back" label="Back" onPress={() => setStep(step - 1)} /> : <View style={{ width: 44 }} />;
-  const progress = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-      {back}
-      <View style={{ flex: 1 }}><ProgressBar value={step + 1} max={STEPS.length} height={6} /></View>
-      <T muted size="sm" style={{ width: 44, textAlign: 'right' }}>{step + 1}/{STEPS.length}</T>
-    </View>
-  );
+  const progress = <StepProgress step={step + 1} total={STEPS.length} onBack={step > 0 ? () => setStep(step - 1) : undefined} />;
   return (
     <Screen>
       {progress}
