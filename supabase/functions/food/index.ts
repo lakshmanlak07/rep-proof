@@ -27,7 +27,9 @@ const hasData = (m: Macros) => !!(m.kcal || m.protein || m.fat || m.carbs);
 // Upstream text is untrusted: keep it short (food_logs.name allows 200 characters).
 const text = (v: unknown, max = 120) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
 // Only fixed provider hosts are fetched; user input only ever lands in an encoded query value or a digits-only path.
-const get = (url: string | URL, headers: Record<string, string> = OFF_HEADERS) => fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+// A request carrying the USDA key never follows a redirect, so the key cannot be forwarded to another host.
+const get = (url: string | URL, headers: Record<string, string> = OFF_HEADERS) =>
+  fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS), redirect: 'X-Api-Key' in headers ? 'error' : 'follow' });
 
 function fromUsda(f: any): Food {
   const n = (...nums: string[]) => {
@@ -65,7 +67,7 @@ function fromOff(p: any): Food | null {
 
 async function usdaSearch(query: string, branded: boolean): Promise<any[]> {
   const key = Deno.env.get('FDC_API_KEY');
-  if (!key) return [];
+  if (!key) throw new Error('USDA key missing');
   const url = new URL('https://api.nal.usda.gov/fdc/v1/foods/search');
   url.searchParams.set('query', query);
   url.searchParams.set('pageSize', '25');
@@ -78,13 +80,14 @@ async function usdaSearch(query: string, branded: boolean): Promise<any[]> {
 
 async function offSearch(query: string): Promise<Food[]> {
   const res = await get(`https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&page_size=20&fields=${OFF_FIELDS}`);
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error(`OFF ${res.status}`);
   return ((await res.json()).hits ?? []).map(fromOff).filter(Boolean);
 }
 
 async function offBarcode(code: string): Promise<Food[]> {
   const res = await get(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${OFF_FIELDS}`);
-  if (!res.ok) return [];
+  if (res.status === 404) return []; // a real "not in Open Food Facts"
+  if (!res.ok) throw new Error(`OFF ${res.status}`);
   const food = fromOff((await res.json()).product);
   return food ? [food] : [];
 }
@@ -100,8 +103,13 @@ function dedupe(foods: Food[]): Food[] {
   });
 }
 
-async function search(q: string): Promise<Food[]> {
-  const [usda, off] = await Promise.all([usdaSearch(q, false).catch(() => []), offSearch(q).catch(() => [])]);
+/** Results, and whether every source answered (only complete answers are cached for everyone). */
+type Found = { foods: Food[]; complete: boolean };
+
+async function search(q: string): Promise<Found> {
+  let complete = true;
+  const partial = () => { complete = false; return []; };
+  const [usda, off] = await Promise.all([usdaSearch(q, false).catch(partial), offSearch(q).catch(partial)]);
   // USDA: names containing every search word first, then generic before branded.
   // Stable sort keeps USDA's relevance order inside each group.
   const words = q.split(/\s+/).filter(Boolean);
@@ -111,15 +119,17 @@ async function search(q: string): Promise<Food[]> {
   // Exact-name USDA matches lead; Open Food Facts (worldwide packaged foods) follow; loose USDA matches last.
   const exact = sorted.filter((f) => score(f) < 10).map(fromUsda);
   const loose = sorted.filter((f) => score(f) >= 10).map(fromUsda);
-  return dedupe([...exact, ...off, ...loose]).slice(0, 40);
+  return { foods: dedupe([...exact, ...off, ...loose]).slice(0, 40), complete };
 }
 
-async function barcode(code: string): Promise<Food[]> {
-  const off = await offBarcode(code).catch(() => []);
-  if (off.length) return off;
+async function barcode(code: string): Promise<Found> {
+  let complete = true;
+  const partial = () => { complete = false; return []; };
+  const off = await offBarcode(code).catch(partial);
+  if (off.length) return { foods: off, complete: true };
   const strip = (s: string) => s.replace(/^0+/, '');
-  const usda = await usdaSearch(code, true).catch(() => []);
-  return dedupe(usda.filter((f) => strip(String(f.gtinUpc ?? '')) === strip(code)).map(fromUsda));
+  const usda = await usdaSearch(code, true).catch(partial);
+  return { foods: dedupe(usda.filter((f) => strip(String(f.gtinUpc ?? '')) === strip(code)).map(fromUsda)), complete };
 }
 
 // The native app needs no CORS; the web build does. A wildcard origin is safe here: callers authenticate
@@ -168,10 +178,13 @@ Deno.serve(async (req) => {
       return json({ foods: cached.data.results });
     }
 
-    const foods = 'upc' in parsed ? await barcode(parsed.upc) : await search(parsed.query);
-    if (foods.length) await admin.from('food_cache').upsert({ key: parsed.key, results: foods, fetched_at: new Date().toISOString() });
+    const { foods, complete } = 'upc' in parsed ? await barcode(parsed.upc) : await search(parsed.query);
+    // Cache only complete answers: a result built while USDA or Open Food Facts was down (or rate-limited)
+    // would otherwise be served to every user for CACHE_DAYS.
+    if (foods.length && complete) await admin.from('food_cache').upsert({ key: parsed.key, results: foods, fetched_at: new Date().toISOString() });
     // Expired entries are never served; clear them out now and then so the cache cannot grow without bound.
     if (Math.random() < 0.01) await admin.from('food_cache').delete().lt('fetched_at', new Date(Date.now() - CACHE_DAYS * 864e5).toISOString());
+    if (!foods.length && !complete) return json({ error: 'food search unavailable' }, 503);
     return json({ foods });
   } catch (e) {
     // Log the error type only: no request text, tokens or upstream URLs in the logs, nothing internal in the reply.

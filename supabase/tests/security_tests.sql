@@ -1,5 +1,6 @@
 -- RepProof database security regression tests.
--- Run in Supabase: SQL Editor -> New query -> paste -> Run. Requires migrations 1-4.
+-- Run in Supabase: SQL Editor -> New query -> paste -> Run. Requires migrations 1-8 (Postgres 17+ for MAINTAIN);
+-- against production before migration 8 is applied, the MAINTAIN, sequence and rate_limits checks fail as expected.
 -- Locally / in CI: `npm run test:db` runs the migrations and this file on an in-memory Postgres.
 -- Everything runs inside one transaction and is ROLLED BACK at the end: no data is kept.
 -- Each check prints "PASS ..." as a notice; any failure stops the script with "FAIL ...".
@@ -93,6 +94,47 @@ begin
   update public.programs set user_id = 'aaaaaaaa-0000-4000-8000-00000000000a' where id = 'bbbbbbbb-0000-4000-8000-0000000000b1'; get diagnostics n = row_count; perform pg_temp.ok(n = 0, 'A cannot take over B plan');
 end $$;
 reset role;
+
+-- ── 2b. Cross-account edits and owner reassignment on every user table (UPDATE is granted for edits) ──
+do $$
+declare n int;
+begin
+  perform pg_temp.as_user('aaaaaaaa-0000-4000-8000-00000000000a');
+  update public.food_logs set grams = 1 where user_id = 'bbbbbbbb-0000-4000-8000-00000000000b'; get diagnostics n = row_count; perform pg_temp.ok(n = 0, 'A cannot edit B food logs');
+  update public.bodyweight_logs set weight = 1 where user_id = 'bbbbbbbb-0000-4000-8000-00000000000b'; get diagnostics n = row_count; perform pg_temp.ok(n = 0, 'A cannot edit B bodyweight');
+  -- Cardio entries and saved meals are insert-only (migration 6): nobody can edit them, own or other.
+  begin update public.cardio_logs set minutes = 1 where user_id = 'bbbbbbbb-0000-4000-8000-00000000000b'; perform pg_temp.ok(false, 'A cannot edit B cardio');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'A cannot edit B cardio'); end;
+  begin update public.saved_meals set name = 'x' where user_id = 'bbbbbbbb-0000-4000-8000-00000000000b'; perform pg_temp.ok(false, 'A cannot edit B saved meals');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'A cannot edit B saved meals'); end;
+  delete from public.bodyweight_logs where user_id = 'bbbbbbbb-0000-4000-8000-00000000000b'; get diagnostics n = row_count; perform pg_temp.ok(n = 0, 'A cannot delete B bodyweight');
+  delete from public.cardio_logs where user_id = 'bbbbbbbb-0000-4000-8000-00000000000b'; get diagnostics n = row_count; perform pg_temp.ok(n = 0, 'A cannot delete B cardio');
+  -- Moving one's own row into another account is refused (WITH CHECK on the new row).
+  insert into public.food_logs (logged_on, meal, fdc_id, name, grams, kcal, protein, fat, carbs) values (current_date, 'lunch', 0, 'A meal', 100, 100, 1, 1, 1);
+  begin
+    update public.food_logs set user_id = 'bbbbbbbb-0000-4000-8000-00000000000b' where name = 'A meal';
+    perform pg_temp.ok(false, 'A cannot move a food log into B account');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'A cannot move a food log into B account'); end;
+  begin
+    insert into public.bodyweight_logs (user_id, weight) values ('bbbbbbbb-0000-4000-8000-00000000000b', 80);
+    perform pg_temp.ok(false, 'A cannot log bodyweight as B');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'A cannot log bodyweight as B'); end;
+  begin
+    insert into public.cardio_logs (user_id, kind, minutes, intensity) values ('bbbbbbbb-0000-4000-8000-00000000000b', 'run', 10, 'easy');
+    perform pg_temp.ok(false, 'A cannot log cardio as B');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'A cannot log cardio as B'); end;
+  begin
+    insert into public.saved_meals (user_id, name, items) values ('bbbbbbbb-0000-4000-8000-00000000000b', 'x', '[]');
+    perform pg_temp.ok(false, 'A cannot save a meal as B');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'A cannot save a meal as B'); end;
+end $$;
+reset role;
+do $$
+declare n int;
+begin
+  select count(*) into n from public.food_logs where user_id = 'bbbbbbbb-0000-4000-8000-00000000000b' and grams = 100; perform pg_temp.ok(n = 1, 'B food log unchanged after A attempts');
+  select count(*) into n from public.food_logs where user_id = 'bbbbbbbb-0000-4000-8000-00000000000b'; perform pg_temp.ok(n = 1, 'no food log was moved into B account');
+end $$;
 
 -- ── 3. Forged user ids and parent rows (attacker E) ──
 do $$ begin
@@ -337,8 +379,13 @@ begin
   perform pg_temp.ok(allowed, '20 food searches a minute are allowed');
   allowed := public.food_search_allowed();
   perform pg_temp.ok(not allowed, '21st food search in a minute is refused');
+  for i in 1..5 loop allowed := public.food_search_allowed(); end loop; -- refused bursts
 end $$;
 reset role;
+do $$ declare n int; begin
+  select max(hits) into n from private.rate_limits where bucket = 'food_search_day';
+  perform pg_temp.ok(n = 20, 'refused food searches do not spend the daily allowance');
+end $$;
 
 do $$ begin
   -- B's counters are separate: A's spam does not lock B out.
@@ -348,7 +395,177 @@ do $$ begin
 end $$;
 reset role;
 
--- ── 9. Account deletion removes only the caller's data ──
+-- ── 9. Optional RPE on sets, crash reports (migration 6) ──
+do $$
+declare w uuid; n int;
+begin
+  perform pg_temp.as_user('aaaaaaaa-0000-4000-8000-00000000000a');
+  w := public.save_workout(gen_random_uuid(), 'aaaaaaaa-0000-4000-8000-0000000000a1', 0, 'Upper A', null, now(), 0, 1,
+    '[{"exercise_id":"bb_bench","set_index":0,"weight":60,"reps":8,"rir":2,"rpe":8},{"exercise_id":"bb_bench","set_index":1,"weight":60,"reps":8,"rir":1}]');
+  select count(*) into n from public.logged_sets where workout_id = w and rpe = 8; perform pg_temp.ok(n = 1, 'RPE saves with the set');
+  select count(*) into n from public.logged_sets where workout_id = w and rpe is null; perform pg_temp.ok(n = 1, 'RPE stays optional');
+  begin
+    perform public.save_workout(gen_random_uuid(), 'aaaaaaaa-0000-4000-8000-0000000000a1', 0, 'x', null, now(), 0, 1,
+      '[{"exercise_id":"bb_bench","set_index":0,"weight":60,"reps":8,"rir":1,"rpe":8.3}]');
+    perform pg_temp.ok(false, 'RPE outside half steps refused');
+  exception when check_violation then perform pg_temp.ok(true, 'RPE outside half steps refused'); end;
+  begin
+    perform public.save_workout(gen_random_uuid(), 'aaaaaaaa-0000-4000-8000-0000000000a1', 0, 'x', null, now(), 0, 1,
+      '[{"exercise_id":"bb_bench","set_index":0,"weight":60,"reps":8,"rir":0,"rpe":11}]');
+    perform pg_temp.ok(false, 'RPE above 10 refused');
+  exception when check_violation then perform pg_temp.ok(true, 'RPE above 10 refused'); end;
+  begin
+    perform public.save_workout(gen_random_uuid(), 'aaaaaaaa-0000-4000-8000-0000000000a1', 0, 'x', null, now(), 0, 1,
+      '[{"exercise_id":"bb_bench","set_index":0,"weight":60,"reps":8,"rir":0,"rpe":8}]');
+    perform pg_temp.ok(false, 'RPE that contradicts RIR refused');
+  exception when check_violation then perform pg_temp.ok(true, 'RPE that contradicts RIR refused'); end;
+  begin
+    perform public.save_workout(gen_random_uuid(), 'aaaaaaaa-0000-4000-8000-0000000000a1', 0, 'x', null, now(), 0, 1,
+      '[{"exercise_id":"bb_bench","set_index":0,"weight":60,"reps":8,"rpe":9}]');
+    perform pg_temp.ok(false, 'RPE without RIR refused');
+  exception when check_violation then perform pg_temp.ok(true, 'RPE without RIR refused'); end;
+  w := public.save_workout(gen_random_uuid(), 'aaaaaaaa-0000-4000-8000-0000000000a1', 0, 'x', null, now(), 0, 1,
+    '[{"exercise_id":"bb_bench","set_index":0,"weight":60,"reps":8,"rir":1,"rpe":8.5},{"exercise_id":"bb_bench","set_index":1,"weight":60,"reps":8,"rir":4,"rpe":6}]');
+  select count(*) into n from public.logged_sets where workout_id = w; perform pg_temp.ok(n = 2, 'half-step RPE (8.5 = 1 RIR) and RPE 6 (4+ RIR) accepted');
+
+  insert into public.client_errors (message, stack, context) values ('TypeError: x is undefined', 'at Workout', '{"route":"/workout"}');
+  perform pg_temp.ok(true, 'crash report can be sent');
+  begin select count(*) into n from public.client_errors; perform pg_temp.ok(false, 'crash reports are write-only');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'crash reports are write-only'); end;
+  begin insert into public.client_errors (user_id, message) values ('bbbbbbbb-0000-4000-8000-00000000000b', 'forged');
+    perform pg_temp.ok(false, 'crash report cannot be filed as someone else');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'crash report cannot be filed as someone else'); end;
+  begin insert into public.client_errors (message) values (repeat('m', 600)); perform pg_temp.ok(false, 'oversized crash report refused');
+  exception when check_violation then perform pg_temp.ok(true, 'oversized crash report refused'); end;
+end $$;
+reset role;
+
+-- ── 10. Integrity hardening (migration 6): consent record, program deletion, set order, birth year, indexes ──
+do $$
+declare n int; t timestamptz; w uuid; ord text;
+begin
+  perform pg_temp.as_user('aaaaaaaa-0000-4000-8000-00000000000a');
+  select disclaimer_accepted_at into t from public.profiles where id = 'aaaaaaaa-0000-4000-8000-00000000000a';
+  update public.profiles set disclaimer_accepted_at = '2000-01-01' where id = 'aaaaaaaa-0000-4000-8000-00000000000a';
+  perform pg_temp.ok((select disclaimer_accepted_at from public.profiles where id = 'aaaaaaaa-0000-4000-8000-00000000000a') = t, 'consent time cannot be rewritten');
+  begin
+    delete from public.programs where id = 'aaaaaaaa-0000-4000-8000-0000000000a1';
+    perform pg_temp.ok(false, 'programs cannot be deleted (it would delete workout history)');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'programs cannot be deleted (it would delete workout history)'); end;
+  begin
+    update public.profiles set birth_year = 0 where id = 'aaaaaaaa-0000-4000-8000-00000000000a';
+    perform pg_temp.ok(false, 'birth year must be a real year');
+  exception when check_violation then perform pg_temp.ok(true, 'birth year must be a real year'); end;
+  w := public.save_workout(gen_random_uuid(), 'aaaaaaaa-0000-4000-8000-0000000000a1', 0, 'Order', null, now(), 0, 1,
+    '[{"exercise_id":"bb_squat","set_index":0,"weight":100,"reps":5,"rir":2},{"exercise_id":"bb_bench","set_index":0,"weight":60,"reps":8,"rir":2},{"exercise_id":"bb_squat","set_index":1,"weight":100,"reps":5,"rir":1}]');
+  select string_agg(exercise_id || set_index, ',' order by created_at) into ord from public.logged_sets where workout_id = w;
+  perform pg_temp.ok(ord = 'bb_squat0,bb_bench0,bb_squat1', 'sets keep the order they were logged in');
+end $$;
+reset role;
+do $$
+declare n int;
+begin
+  -- Consent is stamped by the server on insert, whatever the client sends.
+  insert into auth.users (id) values ('cccccccc-0000-4000-8000-00000000000c');
+  perform pg_temp.as_user('cccccccc-0000-4000-8000-00000000000c');
+  insert into public.profiles (id, birth_year, disclaimer_accepted_at, experience, goal, setup, days, session_minutes, bodyweight, height_cm, unit)
+    values ('cccccccc-0000-4000-8000-00000000000c', 1990, '1999-01-01', 'beginner', 'muscle', 'home', 3, 45, 70, 170, 'kg');
+  perform pg_temp.ok((select disclaimer_accepted_at > now() - interval '1 minute' from public.profiles where id = 'cccccccc-0000-4000-8000-00000000000c'), 'consent time is set by the server');
+end $$;
+reset role;
+do $$
+declare n int;
+begin
+  select count(*) into n from pg_indexes where schemaname = 'public' and indexname in
+    ('logged_sets_workout', 'logged_sets_user_time', 'workouts_user_finished', 'workouts_program', 'programs_user', 'events_user', 'feedback_user', 'cardio_logs_user_time', 'saved_meals_user_time', 'client_errors_user', 'food_cache_fetched');
+  perform pg_temp.ok(n = 11, 'cascade and query indexes exist');
+end $$;
+do $$
+declare n int;
+begin
+  perform pg_temp.as_anon();
+  begin insert into public.client_errors (message) values ('anon'); perform pg_temp.ok(false, 'anonymous cannot send crash reports');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'anonymous cannot send crash reports'); end;
+end $$;
+reset role;
+do $$
+declare i int;
+begin
+  perform pg_temp.as_user('bbbbbbbb-0000-4000-8000-00000000000b');
+  for i in 1..50 loop insert into public.client_errors (message) values ('crash ' || i); end loop;
+  begin insert into public.client_errors (message) values ('crash 51'); perform pg_temp.ok(false, '51st crash report in a day is refused');
+  exception when raise_exception then perform pg_temp.ok(true, '51st crash report in a day is refused'); end;
+end $$;
+reset role;
+
+-- Retention: a new report clears reports older than 90 days. (As the owner, with no user claims.)
+select set_config('request.jwt.claims', '{}', true);
+insert into public.client_errors (user_id, message, created_at) values ('bbbbbbbb-0000-4000-8000-00000000000b', 'old crash', now() - interval '100 days');
+do $$
+declare n int;
+begin
+  perform pg_temp.as_user('aaaaaaaa-0000-4000-8000-00000000000a');
+  insert into public.client_errors (message) values ('new crash');
+end $$;
+reset role;
+do $$
+declare n int;
+begin
+  select count(*) into n from public.client_errors where message = 'old crash'; perform pg_temp.ok(n = 0, 'crash reports older than 90 days are cleared');
+  select count(*) into n from public.client_errors where message = 'new crash'; perform pg_temp.ok(n = 1, 'recent crash reports are kept');
+end $$;
+
+-- ── 10b. Least privilege (migration 6 §5): no profile deletes, no edits to insert-only rows, honest timestamps, growth caps ──
+do $$
+declare i int;
+begin
+  perform pg_temp.as_user('bbbbbbbb-0000-4000-8000-00000000000b');
+  begin delete from public.profiles where id = 'bbbbbbbb-0000-4000-8000-00000000000b'; perform pg_temp.ok(false, 'a profile cannot be deleted (it would reset consent time and plan tier)');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'a profile cannot be deleted (it would reset consent time and plan tier)'); end;
+  begin update public.saved_meals set name = 'renamed' where user_id = 'bbbbbbbb-0000-4000-8000-00000000000b'; perform pg_temp.ok(false, 'own saved meals cannot be edited (insert-only)');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'own saved meals cannot be edited (insert-only)'); end;
+  begin insert into public.events (name, created_at) values ('backdated', '2020-01-01'); perform pg_temp.ok(false, 'events cannot be backdated');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'events cannot be backdated'); end;
+  begin insert into public.feedback (kind, message, created_at) values ('feedback', 'old', '2020-01-01'); perform pg_temp.ok(false, 'feedback cannot be backdated');
+  exception when insufficient_privilege then perform pg_temp.ok(true, 'feedback cannot be backdated'); end;
+  insert into public.events (name, props) values ('ok_event', '{"a":1}'); perform pg_temp.ok(true, 'the app''s own event insert (name, props) still works');
+  begin insert into public.programs (split, plan, active) values ('x', jsonb_build_object('blob', repeat('a', 70000)), false); perform pg_temp.ok(false, 'a plan over 64 KB is refused');
+  exception when check_violation then perform pg_temp.ok(true, 'a plan over 64 KB is refused'); end;
+  begin
+    for i in 1..31 loop insert into public.programs (split, plan, active) values ('x', '{}', false); end loop;
+    perform pg_temp.ok(false, 'at most 30 new programs a day');
+  exception when raise_exception then perform pg_temp.ok(true, 'at most 30 new programs a day'); end;
+end $$;
+reset role;
+-- A function created by a later migration is not callable until it is granted.
+create function public.zz_future_fn() returns int language sql as 'select 1';
+do $$ begin
+  perform pg_temp.ok(not has_function_privilege('anon', 'public.zz_future_fn()', 'execute') and not has_function_privilege('authenticated', 'public.zz_future_fn()', 'execute'),
+    'new functions are not executable by default');
+end $$;
+
+-- replace_program: a rebuild leaves exactly one active plan.
+do $$ declare n int; begin
+  perform pg_temp.as_user('aaaaaaaa-0000-4000-8000-00000000000a');
+  perform public.replace_program('upper_lower', '{}', 0);
+  perform public.replace_program('full_body', '{}', 1);
+  select count(*) into n from public.programs where user_id = auth.uid() and active;
+  perform pg_temp.ok(n = 1, 'replace_program leaves exactly one active program');
+end $$;
+-- A gets a row in every user table first, so the deletion check below means something for each one.
+reset role; select set_config('request.jwt.claims', '{}', true); -- seeded as the owner, outside any user's write limits
+insert into public.workouts (id, user_id, program_id, day_index, day_name) values
+  ('aaaaaaaa-0000-4000-8000-0000000000a2', 'aaaaaaaa-0000-4000-8000-00000000000a', 'aaaaaaaa-0000-4000-8000-0000000000a1', 0, 'Upper A');
+insert into public.logged_sets (user_id, workout_id, exercise_id, set_index, weight, reps, rir) values
+  ('aaaaaaaa-0000-4000-8000-00000000000a', 'aaaaaaaa-0000-4000-8000-0000000000a2', 'bb_bench', 0, 60, 8, 2);
+insert into public.food_logs (user_id, logged_on, meal, fdc_id, name, grams, kcal, protein, fat, carbs) values
+  ('aaaaaaaa-0000-4000-8000-00000000000a', current_date, 'lunch', 0, 'A meal', 100, 200, 10, 5, 20);
+insert into public.cardio_logs (user_id, kind, minutes, intensity) values ('aaaaaaaa-0000-4000-8000-00000000000a', 'run', 20, 'easy');
+insert into public.saved_meals (user_id, name, items) values ('aaaaaaaa-0000-4000-8000-00000000000a', 'A meal', '[]');
+insert into public.bodyweight_logs (user_id, weight, logged_on) values ('aaaaaaaa-0000-4000-8000-00000000000a', 80, current_date - 400);
+insert into public.events (user_id, name) values ('aaaaaaaa-0000-4000-8000-00000000000a', 'a_event');
+insert into public.client_errors (user_id, message) values ('aaaaaaaa-0000-4000-8000-00000000000a', 'a crash');
+-- ── 11. Account deletion removes only the caller's data ──
 do $$ begin
   perform pg_temp.as_user('aaaaaaaa-0000-4000-8000-00000000000a');
   perform public.delete_account();
@@ -361,7 +578,31 @@ begin
   select count(*) into n from public.workouts where user_id = 'aaaaaaaa-0000-4000-8000-00000000000a'; perform pg_temp.ok(n = 0, 'deleted account: workouts gone');
   select count(*) into n from public.feedback where user_id = 'aaaaaaaa-0000-4000-8000-00000000000a'; perform pg_temp.ok(n = 0, 'deleted account: feedback gone');
   select count(*) into n from private.rate_limits where user_id = 'aaaaaaaa-0000-4000-8000-00000000000a'; perform pg_temp.ok(n = 0, 'deleted account: rate-limit counters gone');
+  select count(*) into n from public.client_errors where user_id = 'aaaaaaaa-0000-4000-8000-00000000000a'; perform pg_temp.ok(n = 0, 'deleted account: crash reports gone');
   select count(*) into n from public.profiles where id = 'bbbbbbbb-0000-4000-8000-00000000000b'; perform pg_temp.ok(n = 1, 'other accounts untouched');
+  -- Every table with a user_id column, including any added later: nothing of A left, B's rows still there.
+  declare t record; a int; b int; begin
+    for t in select table_schema, table_name from information_schema.columns
+             where column_name = 'user_id' and table_schema in ('public', 'private') order by 1, 2 loop
+      execute format('select count(*) from %I.%I where user_id = %L', t.table_schema, t.table_name, 'aaaaaaaa-0000-4000-8000-00000000000a') into a;
+      perform pg_temp.ok(a = 0, format('deleted account: nothing left in %s.%s', t.table_schema, t.table_name));
+      execute format('select count(*) from %I.%I where user_id = %L', t.table_schema, t.table_name, 'bbbbbbbb-0000-4000-8000-00000000000b') into b;
+      if t.table_name in ('programs', 'workouts', 'logged_sets', 'food_logs', 'cardio_logs', 'saved_meals', 'bodyweight_logs', 'events', 'feedback') then
+        perform pg_temp.ok(b > 0, format('other account keeps its rows in %s.%s', t.table_schema, t.table_name));
+      end if;
+    end loop;
+  end;
+  select count(*) into n from pg_policies where schemaname = 'public'
+    and replace(coalesce(qual, '') || coalesce(with_check, ''), 'SELECT auth.uid() AS uid', '') like '%auth.uid()%';
+  perform pg_temp.ok(n = 0, 'policies evaluate auth.uid() once per query (initplan)');
+  select count(*) into n from pg_class c join pg_namespace s on s.oid = c.relnamespace
+    where s.nspname = 'public' and c.relkind = 'r' and (has_table_privilege('authenticated', c.oid, 'MAINTAIN') or has_table_privilege('anon', c.oid, 'MAINTAIN'));
+  perform pg_temp.ok(n = 0, 'API roles cannot VACUUM, REINDEX or LOCK any table (no MAINTAIN)');
+  select count(*) into n from pg_class c join pg_namespace s on s.oid = c.relnamespace
+    where s.nspname = 'public' and c.relkind = 'S' and (has_sequence_privilege('authenticated', c.oid, 'USAGE,SELECT,UPDATE') or has_sequence_privilege('anon', c.oid, 'USAGE,SELECT,UPDATE'));
+  perform pg_temp.ok(n = 0, 'API roles hold no sequence privileges');
+  select count(*) into n from pg_class where oid = 'private.rate_limits'::regclass and relrowsecurity;
+  perform pg_temp.ok(n = 1, 'private.rate_limits has row-level security on');
   raise notice 'ALL SECURITY TESTS PASSED';
 end $$;
 

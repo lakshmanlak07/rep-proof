@@ -1,4 +1,5 @@
 // Validates the food function's request body. Pure TypeScript (no Deno APIs) so `npm test` covers it.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 export const MAX_BODY = 1024; // bytes; a real request is {"query":"..."} or {"upc":"..."}
 
 export type FoodRequest = { key: string; query: string } | { key: string; upc: string };
@@ -22,6 +23,7 @@ export function parseRequest(raw: string): FoodRequest | Rejected {
     return code.length >= 6 && code.length <= 14 ? { key: `upc:${code}`, upc: code } : bad;
   }
   // Control characters out, whitespace collapsed, capped: the cache key cannot be inflated or varied for free.
-  const q = (query ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 100);
+  const clean = (query ?? '').normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(LONE_SURROGATE, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const q = Array.from(clean).slice(0, 100).join('').trim(); // by code point, so an emoji is never cut in half
   return q ? { key: `q:${q}`, query: q } : bad;
 }

@@ -27,9 +27,13 @@ jobs:
       - run: npx expo lint
       # Engine rules plus app-side security tests (error text, deep links, session storage, food requests, analytics).
       - run: npm test
-      # Database: every migration, the security suite on an in-memory Postgres, then 15 deliberately weakened
+      # Database: every migration, the security suite on an in-memory Postgres, then 21 deliberately weakened
       # controls that the suite must catch.
       - run: npm run test:db
+      - run: npm run test:db:safety
+      # Export and account deletion on an in-memory Postgres with RLS; screen states (no false zeros, Retry, deletion confirm).
+      - run: npm run test:export
+      - run: npm run test:screens -- --ci
       # Production bundle builds, and neither the repo, its history nor the bundle holds a secret.
       - run: npx expo export --platform android --output-dir dist
       - run: npm run scan:secrets -- --history dist
