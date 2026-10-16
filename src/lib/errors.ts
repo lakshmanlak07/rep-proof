@@ -28,5 +28,7 @@ export function friendlyAuthError(e: { message?: string; code?: string; status?:
   if (/weak|password.*(short|length|characters)/i.test(m)) return 'Choose a stronger password: at least 10 characters with letters and numbers, not a common one.';
   if (/invalid.*(email|format)|email_address_invalid/i.test(m)) return 'Enter a valid email address.';
   if (/signup.*disabled/i.test(m)) return 'Sign-ups are closed right now.';
+  // Offline or server unreachable (supabase-js reports status 0 / AuthRetryableFetchError): not a wrong password.
+  if (/failed to fetch|network request failed|fetch failed|authretryablefetcherror/i.test(m + ' ' + ((e as { name?: string }).name ?? '')) || e.status === 0) return 'Could not reach RepProof. Check your connection and try again.';
   return 'Could not sign you in with those details. Check them, or create an account if you are new.';
 }

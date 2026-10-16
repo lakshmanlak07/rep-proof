@@ -1,22 +1,35 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 
-import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
+import { EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
+import { MUSCLE_NAMES } from '@/engine/plan.ts';
+import { useData } from '@/lib/data';
 import { DIFFICULTY, EQUIPMENT_LABEL, PATTERN_LABEL, infoFor } from '@/lib/exerciseInfo';
+import { Banner, C, Card, Chip, Empty, IconTile, ListRow, Screen, Section, s, T } from '@/ui';
 import { Badge } from '@/why';
-import { C, Card, Chip, Section, Screen, s, T } from '@/ui';
 
 export default function ExerciseDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { profile } = useData();
   const ex = EXERCISE_BY_ID[id];
-  if (!ex) return <Screen><T>Exercise not found.</T></Screen>;
+  if (!ex) {
+    return (
+      <Screen edges={['bottom']}>
+        <Empty icon="search" title="Exercise not found" body="It may have been renamed. Browse the library to find it." action="Open the library" onAction={() => router.replace('/library')} />
+      </Screen>
+    );
+  }
   const info = infoFor(ex);
+  const alternatives = profile ? substitutes(ex.id, profile.setup, profile.avoid).slice(0, 4) : [];
   return (
     <Screen edges={['bottom']}>
-      <View style={{ gap: 6 }}>
-        <T size="micro">{ex.muscle}</T>
-        <T size="xl">{ex.name}</T>
+      <View style={[s.row, { alignItems: 'flex-start' }]}>
+        <IconTile name={ex.compound ? 'barbell-outline' : 'fitness-outline'} size={52} />
+        <View style={{ flex: 1, gap: 4 }}>
+          <T size="micro">{MUSCLE_NAMES[ex.muscle]} · {ex.compound ? 'compound' : 'isolation'}</T>
+          <T size="xl" header>{ex.name}</T>
+        </View>
       </View>
       <View style={[s.row, { flexWrap: 'wrap', gap: 6 }]}>
         <Chip tone="accent" label={DIFFICULTY[ex.difficulty]} />
@@ -24,14 +37,9 @@ export default function ExerciseDetail() {
         <Chip label={PATTERN_LABEL[ex.pattern]} />
       </View>
 
-      <View style={{ height: 210, borderRadius: 24, backgroundColor: C.accentSoft, alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        <Ionicons name="play-circle" size={56} color={C.accent} />
-        <T muted size="sm">Movement video coming soon</T>
-      </View>
-
       <View style={[s.row, { alignItems: 'stretch' }]}>
-        <Card style={{ flex: 1 }}><T size="micro">Primary</T><T bold>{info.primary}</T></Card>
-        <Card style={{ flex: 1 }}><T size="micro">Secondary</T><T bold>{info.secondary}</T></Card>
+        <Card flat style={{ flex: 1 }}><T size="micro">Primary</T><T bold>{info.primary}</T></Card>
+        <Card flat style={{ flex: 1 }}><T size="micro">Secondary</T><T bold>{info.secondary}</T></Card>
       </View>
       <Card flat><T size="micro">Best for</T><T>{info.bestFor}</T></Card>
 
@@ -42,6 +50,7 @@ export default function ExerciseDetail() {
             <T style={{ flex: 1 }}>{st}</T>
           </View>
         ))}</Card>
+        <T muted size="sm">Written steps only: RepProof does not include exercise videos yet.</T>
       </Section>
       <Section title="Key cues">
         <View style={[s.row, { flexWrap: 'wrap', gap: 8 }]}>{ex.cues.map((c) => <Chip key={c} tone="accent" label={c} />)}</View>
@@ -59,6 +68,19 @@ export default function ExerciseDetail() {
         </View>
         <T>{info.note}</T>
       </Card>
+
+      {alternatives.length ? (
+        <Section title="Alternatives with your equipment">
+          <Card flat style={{ gap: 4 }}>
+            {alternatives.map((a) => (
+              <ListRow key={a.id} icon={a.compound ? 'barbell-outline' : 'fitness-outline'} title={a.name} value={PATTERN_LABEL[a.pattern]}
+                onPress={() => router.push({ pathname: '/exercise/[id]', params: { id: a.id } })} />
+            ))}
+          </Card>
+        </Section>
+      ) : null}
+
+      <Banner text="General technique guidance, not medical advice. If an exercise hurts, stop and see a qualified professional." />
     </Screen>
   );
 }

@@ -1,6 +1,6 @@
 import { available, EXERCISE_BY_ID } from './exercises.ts';
 import type {
-  Effort, Exercise, Experience, Explanation, Goal, Muscle, Pattern, PlannedDay, PlannedExercise, Profile, Program, SplitId,
+  Coverage, Effort, Exercise, Experience, Explanation, Goal, Muscle, Pattern, PlannedDay, PlannedExercise, Profile, Program, SplitId,
 } from './types.ts';
 
 export const MUSCLES: Muscle[] = ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'glutes', 'biceps', 'triceps', 'calves', 'abs'];
@@ -67,6 +67,44 @@ const ARMS: Muscle[] = ['biceps', 'triceps'];
 const ACCESSORIES: Muscle[] = ['abs', 'calves', 'glutes', 'triceps', 'biceps'];
 const MAX_EXERCISES = 8;
 
+/**
+ * Regions of a muscle that different exercises grow differently (coverage 'regions': one exercise for each, every
+ * day the muscle is trained). Only where research or anatomy gives a reason; biceps (shoulder angle made no
+ * difference), calves (standing raises grew the soleus as much as seated ones) and abs stay one exercise.
+ * The first region of each muscle is kept longest when a session runs over its time.
+ */
+export const REGIONS: Partial<Record<Muscle, { id: string; label: string; match: (e: Exercise) => boolean }[]>> = {
+  chest: [
+    { id: 'sternal', label: 'Mid and lower chest', match: (e) => !e.id.includes('incline') && (e.pattern === 'horizontal_push' || e.pattern === 'fly') },
+    { id: 'clavicular', label: 'Upper chest', match: (e) => e.id.includes('incline') },
+  ],
+  back: [
+    { id: 'lats', label: 'Lats', match: (e) => e.pattern === 'vertical_pull' || e.pattern === 'pullover' },
+    { id: 'upper_back', label: 'Upper back', match: (e) => e.pattern === 'horizontal_pull' },
+  ],
+  shoulders: [
+    { id: 'side', label: 'Side delts', match: (e) => e.pattern === 'lateral_raise' },
+    { id: 'front', label: 'Front delts', match: (e) => e.pattern === 'vertical_push' },
+    { id: 'rear', label: 'Rear delts', match: (e) => e.pattern === 'rear_delt' },
+  ],
+  triceps: [
+    { id: 'long_head', label: 'Long head', match: (e) => e.id.includes('overhead') },
+    { id: 'outer_heads', label: 'Lateral and medial heads', match: (e) => !e.id.includes('overhead') },
+  ],
+  quads: [
+    { id: 'vasti', label: 'Vasti', match: (e) => e.pattern === 'squat' || e.pattern === 'lunge' },
+    { id: 'rectus', label: 'Rectus femoris', match: (e) => e.pattern === 'knee_extension' },
+  ],
+  hamstrings: [
+    { id: 'hip', label: 'Hip extension', match: (e) => e.pattern === 'hinge' },
+    { id: 'knee', label: 'Knee flexion', match: (e) => e.pattern === 'knee_flexion' },
+  ],
+  glutes: [
+    { id: 'max', label: 'Gluteus maximus', match: (e) => e.pattern === 'hip_thrust' || e.pattern === 'hip_extension' },
+    { id: 'med', label: 'Gluteus medius', match: (e) => e.pattern === 'hip_abduction' },
+  ],
+};
+
 // Founder rule (2026-10-04): 1-3 working sets per exercise, never more.
 // 3 for weak points that need emphasis, 1 for strong points, 2 for everything else.
 export const MAX_SETS = 3;
@@ -112,6 +150,7 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   const pool = available(profile.setup, profile.avoid).filter((e) => e.staple !== false); // plans use staples
   const emphasis = { weak: profile.weak ?? [], strong: (profile.strong ?? []).filter((m) => !profile.weak?.includes(m)) };
   const effort: Effort = profile.effort ?? 'last_failure';
+  const coverage: Coverage = profile.coverage ?? 'muscle';
   const targets = effortTargets(effort, profile.experience);
   const explanations: Explanation[] = [];
   let trimmed = false;
@@ -134,18 +173,36 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
     // arms may repeat the pattern with a different exercise (curl + hammer curl).
     const canDouble = (m: Muscle) => (ARMS.includes(m) ? options(m).length > 1 : new Set(options(m).map((e) => e.pattern)).size > 1);
     const trainable = t.muscles.filter((m) => options(m).length);
-    const slots: { m: Muscle; sets: number; second: boolean }[] = trainable.map((m) => ({ m, sets: setsFor(m, emphasis), second: false }));
+    // Regions with an exercise available today (a pull day's shoulders are rear delts only).
+    const regionsOf = (m: Muscle) => (coverage === 'regions' ? (REGIONS[m] ?? []).filter((r) => options(m).some(r.match)) : []);
+    type Slot = { m: Muscle; sets: number; second: boolean; region?: string };
+    const slots: Slot[] = trainable.flatMap((m): Slot[] => {
+      const regions = regionsOf(m);
+      return regions.length > 1
+        ? regions.map((r, k) => ({ m, sets: setsFor(m, emphasis), second: k > 0, region: r.id }))
+        : [{ m, sets: setsFor(m, emphasis), second: false }];
+    });
     const minutes = () => slots.reduce((a, x) => a + exerciseMinutes(x.sets), 0);
     // Fill the session: weak points, then big muscles, then arms get a second movement while time allows.
-    const order = [...emphasis.weak, ...SECOND_PRIORITY.filter((m) => !emphasis.weak.includes(m))];
+    const order = coverage === 'regions' ? [] : [...emphasis.weak, ...SECOND_PRIORITY.filter((m) => !emphasis.weak.includes(m))];
     for (const m of order) {
       if (!trainable.includes(m) || emphasis.strong.includes(m) || slots.length >= MAX_EXERCISES || !canDouble(m)) continue;
       const sets = setsFor(m, emphasis);
       if (minutes() + exerciseMinutes(sets) > profile.sessionMinutes) continue;
       slots.splice(slots.findIndex((x) => x.m === m) + 1, 0, { m, sets, second: true });
     }
+    // Regions: every region keeps its exercise as long as possible, so sets go down to 1 first (step 3 below),
+    // then the extra regions go (accessory muscles first), and only then whole accessory muscles.
+    if (coverage === 'regions') trimSets();
     // Fit the session length, in order:
-    // 1. drop second movements;
+    // 1. drop second movements (for regions: extra regions, accessories first);
+    if (coverage === 'regions') {
+      for (const m of [...ACCESSORIES, ...MUSCLES.filter((x) => !ACCESSORIES.includes(x))].filter((x) => !emphasis.weak.includes(x))) {
+        for (let i = slots.length - 1; i >= 0 && minutes() > profile.sessionMinutes; i--) {
+          if (slots[i].m === m && slots[i].second) { slots.splice(i, 1); trimmed = true; }
+        }
+      }
+    }
     for (let i = slots.length - 1; i >= 0 && minutes() > profile.sessionMinutes; i--) {
       if (slots[i].second) {
         slots.splice(i, 1);
@@ -165,20 +222,33 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
       trimmed = true;
     }
     // 3. take a set from regular muscles (smallest first), then from weak points. Strong points are at 1.
-    for (const pass of ['regular', 'weak'] as const) {
-      for (let changed = true; changed && minutes() > profile.sessionMinutes;) {
-        changed = false;
-        for (let i = slots.length - 1; i >= 0 && minutes() > profile.sessionMinutes; i--) {
-          if ((pass === 'weak') === emphasis.weak.includes(slots[i].m) && slots[i].sets > 1) {
-            slots[i].sets--;
-            trimmed = changed = true;
+    function trimSets() {
+      for (const pass of ['regular', 'weak'] as const) {
+        for (let changed = true; changed && minutes() > profile.sessionMinutes;) {
+          changed = false;
+          for (let i = slots.length - 1; i >= 0 && minutes() > profile.sessionMinutes; i--) {
+            if ((pass === 'weak') === emphasis.weak.includes(slots[i].m) && slots[i].sets > 1) {
+              slots[i].sets--;
+              trimmed = changed = true;
+            }
           }
         }
       }
     }
+    trimSets();
     const picked: { ex: Exercise; sets: number }[] = [];
-    for (const { m, sets, second } of slots) {
+    for (const { m, sets, second, region } of slots) {
       const candidates = rankCandidates(options(m), profile.experience);
+      if (region) {
+        // One exercise for this region, compound first, rotating across the week.
+        const own = candidates.filter(REGIONS[m]!.find((r) => r.id === region)!.match);
+        const mains = own.filter((e) => e.compound).length ? own.filter((e) => e.compound) : own;
+        const key = `${m}:${region}` as Muscle;
+        const nth = seen[key] ?? 0;
+        seen[key] = nth + 1;
+        picked.push({ ex: mains[nth % mains.length], sets });
+        continue;
+      }
       if (second) {
         const first = picked.find((p) => p.ex.muscle === m)!.ex;
         const other = candidates.find((e) => e.id !== first.id && e.pattern !== first.pattern)
@@ -209,6 +279,13 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   });
 
   const weeklySets = weeklySetsOf(days);
+  if (coverage === 'regions') {
+    explanations.push({
+      text: 'Every region, every session: each training day has one exercise for each region of a muscle (for example an incline press for the upper chest and a flat press or fly for the mid and lower chest), so every region gets the same number of sessions a week. Different exercises grew different regions in studies of the chest (an acute study), triceps and glutes. Biceps and calves stay one exercise, as no regional difference was found there. When a session runs over your time, sets are cut to 1 before any region is dropped.',
+      label: 'principle',
+      refIds: ['regional_chest', 'regional_triceps', 'regional_glutes', 'regional_calves', 'regional_biceps'],
+    });
+  }
 
   const list = (ms: Muscle[]) => ms.map((m) => MUSCLE_NAMES[m].toLowerCase()).join(', ');
   explanations.push({
@@ -246,7 +323,7 @@ export function buildProgram(profile: Profile, split: SplitId = recommendSplit(p
   explanations.push({ text: effortText[effort], label: 'principle', refIds: ['failure'] });
   explanations.push(REST_WHY);
 
-  return { split, weeklySets, days, explanations, emphasis, effort, version: ENGINE_VERSION };
+  return { split, weeklySets, days, explanations, emphasis, effort, coverage, version: ENGINE_VERSION };
 }
 
 /** Planned hard sets per muscle per week (pins count). Recomputed whenever the plan changes. */

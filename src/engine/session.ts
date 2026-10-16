@@ -1,4 +1,4 @@
-import type { CheckIn, Explanation, Muscle } from './types.ts';
+import type { CheckIn, Explanation, LoggedSet, Muscle } from './types.ts';
 import { isBadDay } from './progression.ts';
 
 // Cooldown checklist: generic stretches for the muscles trained. No injury or pain claims (PRD).
@@ -14,6 +14,29 @@ const STRETCHES: Record<Muscle, string> = {
   calves: 'Wall calf stretch, 30 s per side',
   abs: 'Cobra stretch, 30 s',
 };
+
+export type SetRow = { workout_id: string; weight: number | string; reps: number; rir: number | null; set_index: number };
+
+/**
+ * Logged-set rows (newest first) grouped into the last `n` sessions, newest session first, each session's sets in the
+ * order they were done. Rows of one workout carry increasing timestamps (save_workout, migration 6), so a newest-first
+ * query returns them last set first; set_index is the order, never the timestamp.
+ */
+export function sessionsFromRows(rows: SetRow[], n: number): LoggedSet[][] {
+  const order: string[] = [];
+  const byWorkout = new Map<string, SetRow[]>();
+  for (const r of rows) {
+    if (!byWorkout.has(r.workout_id)) {
+      if (order.length === n) break;
+      order.push(r.workout_id);
+      byWorkout.set(r.workout_id, []);
+    }
+    byWorkout.get(r.workout_id)!.push(r);
+  }
+  return order.map((id) => byWorkout.get(id)!
+    .sort((a, b) => a.set_index - b.set_index)
+    .map((r) => ({ weight: Number(r.weight), reps: r.reps, rir: r.rir })));
+}
 
 export function cooldown(muscles: Muscle[]): string[] {
   return [...new Set(muscles)].slice(0, 4).map((m) => STRETCHES[m]);

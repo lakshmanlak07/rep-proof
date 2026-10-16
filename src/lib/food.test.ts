@@ -76,3 +76,9 @@ test('nutrition goals: recomp eats at maintenance, every explanation is labelled
     for (const e of targets({ ...base, phase }).explanations) assert.ok(['direct', 'principle', 'rule'].includes(e.label));
   }
 });
+
+test('rescale never divides by a zero-gram log', async () => {
+  const { rescale } = await import('./portion.ts');
+  const r = rescale({ grams: 0, kcal: 100, protein: 1, fat: 1, carbs: 1 }, 50);
+  assert.ok(Number.isFinite(r.kcal) && r.grams === 50);
+});

@@ -1,10 +1,14 @@
 import type { Session } from '@supabase/supabase-js';
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { Phase } from '@/engine/nutrition.ts';
 import { buildProgram, ENGINE_VERSION } from '@/engine/plan.ts';
+import { sessionsFromRows } from '@/engine/session.ts';
 import type { CheckIn, Experience, Goal, LoggedSet, Pattern, Profile, Program, Setup, SplitId, Unit } from '@/engine/types.ts';
+import { sessionRejected } from './authFlow';
+import { safeProps } from './eventProps';
 import { supabase } from './supabase';
+import { reportError } from './crash';
 
 export type ProfileRow = {
   id: string;
@@ -23,13 +27,15 @@ export type ProfileRow = {
   unit: Unit;
   avoid: Pattern[];
   deload_until: string | null;
+  created_at?: string; // account start (server-set)
 };
 export type ProgramRow = { id: string; split: SplitId; plan: Program; next_day: number };
 
 /** Engine profile from the DB row; weak/strong points and effort style live with the plan. */
-export const toProfile = (r: ProfileRow, plan?: Pick<Program, 'emphasis' | 'effort'>): Profile => ({
+export const toProfile = (r: ProfileRow, plan?: Pick<Program, 'emphasis' | 'effort' | 'coverage'>): Profile => ({
   experience: r.experience, goal: r.goal, setup: r.setup, days: r.days, sessionMinutes: r.session_minutes, unit: r.unit, avoid: r.avoid,
   weak: plan?.emphasis?.weak ?? [], strong: plan?.emphasis?.strong ?? [], effort: plan?.effort ?? 'last_failure',
+  coverage: plan?.coverage ?? 'muscle',
 });
 
 type Ctx = {
@@ -49,9 +55,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [program, setProgram] = useState<ProgramRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const loadedFor = useRef<string | null>(null); // whose profile and program are in state
 
   const load = useCallback(async (s: Session | null) => {
     setSession(s);
+    // Another account (or none): drop the previous one's data at once, so it can never show under the new
+    // session, even briefly or when the new account's load fails.
+    if (loadedFor.current !== (s?.user.id ?? null)) {
+      setProfile(null);
+      setProgram(null);
+      loadedFor.current = null;
+      if (s) setLoading(true); // until this account's profile arrives; never onboarding first for a returning user
+    }
     if (!s) {
       setProfile(null);
       setProgram(null);
@@ -66,6 +81,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         return;
       }
+      // No profile: either a new account (onboarding) or one deleted or revoked on the server while this device
+      // still held a token. Ask the server; a definite rejection signs this device out instead of trapping the
+      // person in an onboarding that can never save. Network errors fall through to onboarding as before.
+      if (!p.data) {
+        const u = await supabase.auth.getUser();
+        if (sessionRejected(u.error)) {
+          await supabase.auth.signOut({ scope: 'local' }); // SIGNED_OUT reloads with no session
+          return;
+        }
+      }
       let program = g.data as ProgramRow | null;
       // Profile but no active plan (e.g. an interrupted rebuild): rebuild it, never re-run onboarding.
       if (p.data && !program) {
@@ -73,8 +98,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
           await saveProgram(toProfile(p.data));
           const fresh = await supabase.from('programs').select('id, split, plan, next_day').eq('active', true).maybeSingle();
           if (!fresh.error && fresh.data) program = fresh.data;
-        } catch {
-          // stays on onboarding's retry path
+        } catch (e) {
+          void reportError(e, 'plan_rebuild'); // stays on onboarding's retry path
         }
       }
       // Plans saved by an older engine are rebuilt under the current rules (split and place in the week kept).
@@ -83,28 +108,45 @@ export function DataProvider({ children }: { children: ReactNode }) {
           await saveProgram(toProfile(p.data, program.plan), program.split, program.next_day);
           const fresh = await supabase.from('programs').select('id, split, plan, next_day').eq('active', true).maybeSingle();
           if (!fresh.error && fresh.data) program = fresh.data;
-        } catch {
-          // keep the old plan; the next load tries again
+        } catch (e) {
+          void reportError(e, 'plan_upgrade'); // keep the old plan; the next load tries again
         }
       }
       setProfile(p.data);
       setProgram(program);
+      loadedFor.current = s.user.id;
     }
     setFailed(false);
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => load(data.session));
+    // An unreadable stored session (e.g. the Android keystore was reset) rejects instead of returning null:
+    // treat it as signed out so the person reaches sign-in, never an endless spinner.
+    supabase.auth.getSession()
+      .then(({ data, error }) => {
+        // Expired token + no network: auth-js keeps the stored session and returns this error. That is
+        // "can't reach RepProof" (Offline screen, Try again), never a sign-out.
+        if (!data.session && error?.name === 'AuthRetryableFetchError') { setFailed(true); setLoading(false); return; }
+        return load(data.session);
+      })
+      .catch(() => load(null)) // unreadable stored session (e.g. keystore reset): sign in again
+      .catch(() => { setFailed(true); setLoading(false); });
     const { data } = supabase.auth.onAuthStateChange((event, s) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') load(s);
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') load(s).catch(() => { setFailed(true); setLoading(false); }); // Offline screen, Try again
     });
     return () => data.subscription.unsubscribe();
   }, [load]);
 
   const refresh = useCallback(async () => {
-    const { data } = await supabase.auth.getSession();
-    await load(data.session);
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (!data.session && error?.name === 'AuthRetryableFetchError') { setFailed(true); setLoading(false); return; }
+      await load(data.session);
+    } catch {
+      setFailed(true); // callers' spinners must stop; the Offline screen offers another try
+      setLoading(false);
+    }
   }, [load]);
 
   return <DataContext.Provider value={{ session, profile, program, loading, failed, refresh }}>{children}</DataContext.Provider>;
@@ -123,7 +165,7 @@ const ok = ({ error }: { error: unknown }) => {
 };
 
 export async function track(name: string, props?: Record<string, unknown>) {
-  await supabase.from('events').insert({ name, props }); // best effort; never blocks the user
+  await supabase.from('events').insert({ name, props: safeProps(name, props) ?? null }); // best effort; only allowlisted properties (eventProps.ts)
 }
 
 /** Replaces the active program, keeping the user's place in the week. */
@@ -140,7 +182,6 @@ export async function saveProgram(profile: Profile, split?: SplitId, nextDay = 0
   ok(await supabase.from('programs').update({ active: true }).eq('id', created.id));
 }
 
-/** Last `n` finished sessions of an exercise, newest first. */
 /** Last `n` sessions of an exercise, newest first; sets in the order they were done. */
 export async function history(exerciseId: string, n = 6): Promise<LoggedSet[][]> {
   const rows = must(await supabase
@@ -150,18 +191,7 @@ export async function history(exerciseId: string, n = 6): Promise<LoggedSet[][]>
     .order('created_at', { ascending: false })
     .order('set_index', { ascending: true })
     .limit(n * 10));
-  const sessions: LoggedSet[][] = [];
-  const ids: string[] = [];
-  for (const r of rows) {
-    let i = ids.indexOf(r.workout_id);
-    if (i === -1) {
-      if (ids.length === n) break;
-      i = ids.push(r.workout_id) - 1;
-      sessions.push([]);
-    }
-    sessions[i].push({ weight: Number(r.weight), reps: r.reps, rir: r.rir });
-  }
-  return sessions;
+  return sessionsFromRows(rows, n);
 }
 
 export async function bestWeight(exerciseId: string): Promise<number | null> {
@@ -169,7 +199,7 @@ export async function bestWeight(exerciseId: string): Promise<number | null> {
   return rows.length ? Number(rows[0].weight) : null;
 }
 
-export type DraftSet = { exerciseId: string; setIndex: number; weight: number; reps: number; rir: number | null; overridden: boolean };
+export type DraftSet = { exerciseId: string; setIndex: number; weight: number; reps: number; rir: number | null; overridden: boolean; rpe?: number | null };
 
 /** Random v4 UUID (idempotency key; not a secret). */
 export const uuid = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -186,7 +216,11 @@ export async function saveWorkout(w: {
     const rpc = await supabase.rpc('save_workout', {
       p_client_id: w.clientId, p_program_id: w.programId, p_day_index: w.dayIndex, p_day_name: w.dayName, p_checkin: w.checkin,
       p_started_at: w.startedAt, p_perf_drops: w.perfDrops, p_next_day: (w.dayIndex + 1) % w.daysInPlan,
-      p_sets: w.sets.map((x) => ({ exercise_id: x.exerciseId, set_index: x.setIndex, weight: x.weight, reps: x.reps, rir: x.rir, overridden: x.overridden })),
+      p_sets: w.sets.map((x) => ({
+        exercise_id: x.exerciseId, set_index: x.setIndex, weight: x.weight, reps: x.reps, rir: x.rir, overridden: x.overridden,
+        // Only sent when present, so a project without migration 6 keeps saving exactly as before.
+        ...(x.rpe != null ? { rpe: x.rpe } : {}),
+      })),
     });
     if (!rpc.error) {
       track('workout_finished', { sets: w.sets.length, checkin: !!w.checkin });
@@ -218,6 +252,12 @@ export async function recentWorkouts(n = 4) {
 }
 
 export const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 864e5);
+
+/** Deletes one of the user's workouts (its sets cascade). RLS scopes it to the owner; zero rows back means nothing was deleted. */
+export async function deleteWorkout(id: string) {
+  const rows = must(await supabase.from('workouts').delete().eq('id', id).select('id'));
+  if (!rows.length) throw new Error('Workout not found');
+}
 
 export async function updateProfile(id: string, patch: Partial<ProfileRow>) {
   ok(await supabase.from('profiles').update(patch).eq('id', id));

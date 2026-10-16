@@ -129,7 +129,7 @@ export function programAdvice(decisions: Decision[]): Explanation | null {
   const stuck = judged.filter((x) => ['add_set', 'swap', 'hold_stalled'].includes(x.kind)).length;
   if (stuck / judged.length < 0.5) return null;
   return {
-    text: `${stuck} of ${judged.length} lifts have stalled while recovery looks fine. Sets are already being added; if this persists for another week, consider more training days, longer sessions, or marking stuck muscles as weak points (Settings, Edit training profile).`,
+    text: `${stuck} of ${judged.length} lifts have stalled while recovery looks fine. Sets are already being added; if this persists for another week, consider more training days, longer sessions, or marking stuck muscles as weak points (Account, Training).`,
     label: 'rule',
     refIds: ['volume_dose', 'frequency_meta'],
   };

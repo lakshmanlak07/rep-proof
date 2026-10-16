@@ -5,6 +5,8 @@ import * as SecureStore from 'expo-secure-store';
 import { AppState, Platform } from 'react-native';
 
 import { chunkedStore } from './chunked';
+import { timedFetch } from './net';
+import { clearLocal } from './prefs';
 
 // Login session: iOS Keychain / Android Keystore, readable only by this app on this device.
 // Sessions saved by earlier versions in plain SQLite storage are moved over on first read, then erased.
@@ -21,12 +23,15 @@ const storage = Platform.OS === 'web' ? localStorage : chunkedStore({
 // Values come from .env (see .env.example). Publishable key only, never the secret key.
 export const supabase = createClient(process.env.EXPO_PUBLIC_SUPABASE_URL!, process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
   auth: { storage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
+  global: { fetch: timedFetch() }, // every auth, data and function call gets a deadline
 });
 
-// However the session ends (sign-out, expiry, revoked elsewhere), drop the unsaved workout from the
-// device: it holds that person's check-in answers.
+// However the session ends (sign-out, expiry, revoked elsewhere, account deleted on the server), nothing of that
+// person stays on the phone: the unsaved workout (check-in answers), coaching notes, calibration and exported files.
 supabase.auth.onAuthStateChange((event) => {
-  if (event === 'SIGNED_OUT') ['draft_workout', 'missed_choice'].forEach((k) => localStorage.removeItem(k));
+  if (event !== 'SIGNED_OUT') return;
+  clearLocal();
+  import('./exportData').then((m) => m.clearExportFiles()).catch(() => {}); // best effort: cache files only
 });
 
 AppState.addEventListener('change', (state) => {
@@ -41,4 +46,5 @@ AppState.addEventListener('change', (state) => {
  */
 export const recoveryClient = () => createClient(process.env.EXPO_PUBLIC_SUPABASE_URL!, process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'repproof-recovery' },
+  global: { fetch: timedFetch() },
 });

@@ -1,7 +1,7 @@
 import { AVOIDABLE } from '@/engine/exercises.ts';
 import { EFFORT_NAMES, MUSCLE_NAMES, MUSCLES } from '@/engine/plan.ts';
 import type Ionicons from '@expo/vector-icons/Ionicons';
-import type { Effort, Experience, Goal, Muscle, Pattern, Setup } from '@/engine/types.ts';
+import type { Coverage, Effort, Experience, Goal, Muscle, Pattern, Setup } from '@/engine/types.ts';
 
 // Choices shared by onboarding and the training-profile editor.
 export const EXPERIENCE_OPTIONS: { value: Experience; label: string; hint: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -18,7 +18,11 @@ export const GOAL_OPTIONS: { value: Goal; label: string; hint: string; icon: key
   { value: 'strength', label: 'Get stronger', hint: 'Heavier lifts, lower reps', icon: 'barbell' },
   { value: 'both', label: 'Both', hint: 'Muscle and strength together', icon: 'infinite' },
 ];
-export const MINUTE_OPTIONS = [30, 45, 60, 75, 90].map((m) => ({ value: m, label: `${m} minutes` }));
+export const MINUTE_OPTIONS = [30, 45, 60, 75, 90].map((m) => ({ value: m, label: `${m} minutes`, hint: m > 60 ? 'Over an hour' : undefined }));
+export const COVERAGE_OPTIONS: { value: Coverage; label: string; hint: string }[] = [
+  { value: 'muscle', label: 'One exercise per muscle', hint: 'Shorter sessions. A second exercise is added when there is time.' },
+  { value: 'regions', label: 'Every region of each muscle', hint: 'Upper and mid chest, front, side and rear delts and so on, every session. Longer sessions.' },
+];
 export const AVOID_OPTIONS: { value: Pattern; label: string }[] = AVOIDABLE.map((a) => ({ value: a.pattern, label: a.label }));
 export const MUSCLE_OPTIONS: { value: Muscle; label: string }[] = MUSCLES.map((m) => ({ value: m, label: MUSCLE_NAMES[m] }));
 export const EFFORT_OPTIONS: { value: Effort; label: string; hint: string }[] = (Object.keys(EFFORT_NAMES) as Effort[]).map((e) => ({ value: e, ...EFFORT_NAMES[e] }));

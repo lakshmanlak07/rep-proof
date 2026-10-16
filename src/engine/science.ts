@@ -50,6 +50,7 @@ export const CAUTIONS: string[] = [
   'Stimulus-to-fatigue ratio is a useful coaching idea, not a measurable quantity.',
   'Supplements are not equal: a few have strong evidence; most do not.',
   'One viral study does not overturn a body of evidence.',
+  'A community post, creator or follower count is not evidence.',
 ];
 
 /** Open debates. RepProof shows them as debates, not settled answers. */
@@ -74,6 +75,14 @@ export type Topic = {
 };
 
 export const TOPICS: Topic[] = [
+  {
+    title: 'Training every region of a muscle',
+    label: 'principle',
+    shows: 'Some muscles do not grow evenly: the incline press worked the upper chest more and the flat press the mid and lower chest; overhead extensions grew the triceps long head about 1.5 times as much as pushdowns; hip extension and hip abduction grew different parts of the glutes. Standing calf raises covered both calf muscles, and curl variations grew the biceps alike.',
+    doesNotShow: 'How much each region adds to total size, or that more sessions a week beat fewer at equal weekly sets: with weekly sets equal, frequency made no meaningful difference to overall growth. The chest finding is from a single session, not long-term growth.',
+    inApp: 'Choose "Every region" and each training day gets one exercise per region (upper and mid chest, lats and upper back, front, side and rear delts, both triceps regions, and so on), so every region is trained as often as the muscle. Sessions get longer; sets drop to 1 before a region is skipped.',
+    refIds: ['regional_chest', 'regional_triceps', 'regional_glutes', 'regional_calves', 'regional_biceps', 'frequency_meta'],
+  },
   {
     title: 'Progressive overload',
     label: 'principle',
@@ -105,6 +114,14 @@ export const TOPICS: Topic[] = [
     doesNotShow: 'That anyone judges RIR exactly on every exercise. It is an estimate.',
     inApp: 'You log RIR per set. Each set is compared with its own target; consistently easy sets speed up progression and trigger a "train closer" note.',
     refIds: ['rir_accuracy', 'rir_bench'],
+  },
+  {
+    title: 'RPE and effort scales',
+    label: 'direct',
+    shows: 'The RIR-based RPE scale ties each rating to reps left: RPE 10 is no reps left, RPE 9 is one, RPE 8 is two. Higher ratings went with slower bar speed in experienced and novice squatters.',
+    doesNotShow: 'That RPE is more accurate than counting reps in reserve. They are the same estimate written two ways.',
+    inApp: 'Choose RIR or RPE in Account, Effort scale. RPE is converted to reps in reserve, half steps rounded toward failure, so progression never speeds up from a rating.',
+    refIds: ['rpe_scale', 'monitoring_review'],
   },
   {
     title: 'Load and rep ranges',
@@ -209,6 +226,38 @@ export const TOPICS: Topic[] = [
     doesNotShow: 'That popular supplements work equally. Most have weak evidence.',
     inApp: 'RepProof does not prescribe supplements or doses. Ask a qualified professional before taking any.',
     refIds: ['creatine', 'caffeine'],
+  },
+  {
+    title: 'Junk volume',
+    label: 'principle',
+    shows: 'Across 67 studies, gains in muscle size and strength kept rising with more weekly sets, but each extra set added less, especially for strength. "Junk volume" is a community term, not a measured threshold.',
+    doesNotShow: 'A set count after which extra sets become useless for everyone, or that more is always better: recovery, time and individual response still limit it. Most participants were young men.',
+    inApp: 'Sets start at 1 to 3 per exercise and only change when your performance and check-ins point that way, rather than chasing a weekly number.',
+    refIds: ['volume_dose_2025', 'volume_dose'],
+  },
+  {
+    title: 'Mind-muscle connection',
+    label: 'direct',
+    shows: 'In one 8-week trial of 30 untrained men, focusing on squeezing the target muscle grew the biceps more than focusing on moving the weight (12.4% vs 6.9% thickness); the thighs grew similarly.',
+    doesNotShow: 'That it works for every muscle, for trained lifters or for women: it is one small study, and the quadriceps showed no difference.',
+    inApp: 'An optional cue, mostly useful on isolation exercises. Exercise cues focus on technique; nothing in the plan depends on it.',
+    refIds: ['attention_focus'],
+  },
+  {
+    title: 'Time under tension and rep speed',
+    label: 'direct',
+    shows: 'With sets taken to failure, repetitions lasting anywhere from about half a second to 8 seconds built similar muscle across 8 studies.',
+    doesNotShow: 'That slow reps or a set tempo add growth. Very slow reps (over 10 seconds) may build less, but too few studies tested them to be sure.',
+    inApp: 'RepProof does not prescribe a tempo: control the weight, use a full range of motion and log your reps and reps in reserve.',
+    refIds: ['rep_duration'],
+  },
+  {
+    title: 'Creatine: amounts studied',
+    label: 'principle',
+    shows: 'A sports-nutrition society position stand reports that creatine use of up to 30 g a day for up to 5 years was safe and well tolerated in healthy people, and suggests a habitual low intake such as 3 g a day. With training, creatine added about 1.1 kg of lean mass versus placebo across 35 trials.',
+    doesNotShow: 'A dose that is right for you. The position stand is a review, not a trial, and several authors work in the supplement industry. It does not cover people with kidney disease or other conditions.',
+    inApp: 'RepProof does not prescribe supplements or doses. Ask a doctor or dietitian before taking creatine, especially with any medical condition.',
+    refIds: ['creatine_issn', 'creatine'],
   },
   {
     title: 'New and viral studies',

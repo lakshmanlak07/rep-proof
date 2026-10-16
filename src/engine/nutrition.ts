@@ -34,7 +34,7 @@ export function targets(i: NutritionInput): Targets {
       refIds: ['mifflin'],
     },
     {
-      text: `${protein} g protein a day (1.6 g per kg of bodyweight). Across 49 trials, gains in lean mass leveled off around this intake.`,
+      text: `${protein} g protein a day (1.6 g per kg of bodyweight). Across 49 trials, gains in lean mass leveled off around this intake; the uncertainty range reached about 2.2 g per kg, so eating more is reasonable but not required.`,
       label: 'direct',
       refIds: ['protein'],
     },
@@ -73,3 +73,41 @@ export const NUTRITION_CARDS: { title: string; body: string; explanation: Explan
     explanation: { text: 'Not adding exercise calories on top of a target that already includes training is our rule, to avoid counting the same activity twice.', label: 'rule', refIds: [] },
   },
 ];
+
+/**
+ * Weight trend against the chosen phase (backlog H-02). Needs at least 4 weigh-ins spanning 14+ days in the last
+ * 28 days; otherwise returns null (not enough data, say nothing). The rate is a least-squares slope, so one
+ * heavy or light day does not swing it. Thresholds are a RepProof rule, not study-tested limits.
+ */
+export function weightTrendCheck(weighIns: { weight: number; logged_on: string }[], phase: Phase, today = new Date()):
+  { perWeekPct: number; tone: 'pos' | 'warn'; text: string; explanation: Explanation } | null {
+  const day = (iso: string) => Date.parse(`${iso}T12:00:00Z`) / 864e5;
+  const now = day(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
+  const pts = weighIns.filter((w) => Number.isFinite(w.weight) && w.weight > 0 && now - day(w.logged_on) <= 28 && now >= day(w.logged_on));
+  if (pts.length < 4) return null;
+  const xs = pts.map((w) => day(w.logged_on));
+  if (Math.max(...xs) - Math.min(...xs) < 14) return null;
+  const ys = pts.map((w) => w.weight);
+  const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const my = ys.reduce((a, b) => a + b, 0) / ys.length;
+  const slopePerDay = xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0) / xs.reduce((a, x) => a + (x - mx) ** 2, 0);
+  const perWeekPct = Math.round(((slopePerDay * 7) / my) * 1000) / 10; // % of bodyweight per week, 1 decimal
+  const rate = `${perWeekPct > 0 ? '+' : ''}${perWeekPct}% of bodyweight a week`;
+  const explanation: Explanation = {
+    text: 'RepProof rule: a cut losing more than about 1% of bodyweight a week, a gain adding more than about 0.5%, or maintenance drifting more than about 0.5% suggests the calorie target is off for you. These are common coaching guidelines, not study-tested limits; adjust in small steps (about 100–200 kcal) and re-check after two more weeks.',
+    label: 'rule', refIds: [],
+  };
+  const say = (tone: 'pos' | 'warn', text: string) => ({ perWeekPct, tone, text: `Your weight trend: ${rate} over the last ${Math.round(Math.max(...xs) - Math.min(...xs))} days. ${text}`, explanation });
+  if (phase === 'cut') {
+    if (perWeekPct < -1) return say('warn', 'Faster than about 1% a week; consider eating a little more to protect muscle and training quality.');
+    if (perWeekPct >= 0) return say('warn', 'Not dropping yet. If you have logged consistently, consider lowering your target slightly.');
+    return say('pos', 'In a sensible range for a cut.');
+  }
+  if (phase === 'gain') {
+    if (perWeekPct > 0.5) return say('warn', 'Faster than about 0.5% a week; more of it is likely fat. Consider eating a little less.');
+    if (perWeekPct <= 0) return say('warn', 'Not gaining yet. If you have logged consistently, consider raising your target slightly.');
+    return say('pos', 'In a sensible range for a gain.');
+  }
+  if (Math.abs(perWeekPct) > 0.5) return say('warn', `Drifting ${perWeekPct > 0 ? 'up' : 'down'} for ${phase === 'recomp' ? 'a recomp' : 'maintenance'}. Consider adjusting your target slightly.`);
+  return say('pos', 'Steady, as intended.');
+}

@@ -17,9 +17,9 @@ export default function Age() {
   if (blocked) {
     return (
       <Screen scroll={false}>
-        <View style={{ flex: 1, justifyContent: 'center', gap: 16 }}>
+        <View style={{ flexGrow: 1, justifyContent: 'center', gap: 16 }}>
           <IconTile name="information-circle-outline" />
-          <T size="xl">RepProof is for ages 18 and up.</T>
+          <T size="xl" header>RepProof is for ages 18 and up.</T>
           <T muted>{"This app is built for adult training and nutrition, so we can't set up an account for you yet. Nothing you entered was saved. Thanks for checking us out."}</T>
           <Card flat><T size="sm" muted>If you want to start lifting, a PE teacher, coach or doctor can help you do it safely.</T></Card>
         </View>
@@ -32,8 +32,8 @@ export default function Age() {
   return (
     <Screen>
       <StepProgress step={1} total={2} onBack={() => router.back()} />
-      <View style={{ flex: 1, justifyContent: 'flex-end', gap: 16 }}>
-        <T size="xl">RepProof is for adults.</T>
+      <View style={{ flexGrow: 1, justifyContent: 'flex-end', gap: 16 }}>
+        <T size="xl" header>RepProof is for adults.</T>
         <T muted>{"Please enter the year you were born. We use it only to confirm you're 18 or older."}</T>
         <Field label="Year of birth" keyboardType="number-pad" maxLength={4} placeholder="e.g. 1998" value={year} onChangeText={setYear} autoFocus />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.accentSoft, borderRadius: 12, padding: 12 }}>

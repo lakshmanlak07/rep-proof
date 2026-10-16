@@ -7,7 +7,7 @@ import { useCaptcha, useCountdown } from '@/auth-ui';
 import { alert, friendlyAuthError } from '@/lib/alert';
 import { cleanCode, emailRequestOutcome, isCode, MIN_PASSWORD, newPasswordProblem, RESEND_SECONDS } from '@/lib/authFlow';
 import { recoveryClient } from '@/lib/supabase';
-import { Button, C, Field, Screen, T } from '@/ui';
+import { Button, ErrorText, Field, Screen, T } from '@/ui';
 
 // Password reset with a code from the email, typed into the app. No link carries a session, so nothing
 // can be intercepted through the app's URL scheme, and it works when the email is read on another device.
@@ -33,7 +33,9 @@ export default function ForgotPassword() {
   async function sendCode() {
     setBusy(true);
     setError('');
-    const { error } = await recoveryClient().auth.resetPasswordForEmail(email.trim(), { captchaToken: captcha.token });
+    // A thrown network error must not leave the button spinning: treat it like any other failed request.
+    const { error } = await recoveryClient().auth.resetPasswordForEmail(email.trim(), { captchaToken: captcha.token })
+      .catch((e: { message?: string }) => ({ data: null, error: { message: e?.message ?? 'Network request failed', status: 0, code: undefined } }));
     captcha.reset();
     setBusy(false);
     // Same answer whether or not the address has an account.
@@ -60,10 +62,15 @@ export default function ForgotPassword() {
       }
       const u = await client.auth.updateUser({ password });
       if (u.error) return setError(friendlyAuthError(u.error));
-      // End every session of this account, everywhere: a stolen session stops working now.
-      await client.auth.signOut({ scope: 'global' });
+      // End every session of this account, everywhere: a stolen session stops working now. signOut reports a
+      // failure as { error } (it does not throw); never claim other devices were signed out when they were not.
+      const out = await client.auth.signOut({ scope: 'global' });
       verified.current = null;
-      alert('Password changed', 'Sign in with your new password. You have been signed out on your other devices.');
+      if (out.error) {
+        alert('Password changed', 'Sign in with your new password. We could not sign you out on your other devices: after signing in, use Account › Sign out on any device you do not recognise, or reset your password again.');
+      } else {
+        alert('Password changed', 'Sign in with your new password. You have been signed out on your other devices.');
+      }
       router.replace('/sign-in?mode=signin');
     } catch {
       setError('Check your connection and try again.');
@@ -75,10 +82,10 @@ export default function ForgotPassword() {
   if (step === 'email') {
     return (
       <Screen>
-        <T size="xl">Reset your password</T>
+        <T size="xl" header>Reset your password</T>
         <T muted>Enter the email you signed up with. We will send you a code.</T>
         <Field label="Email" autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={email} onChangeText={setEmail} />
-        {error ? <T style={{ color: C.danger }}>{error}</T> : null}
+        {error ? <ErrorText>{error}</ErrorText> : null}
         <View style={{ flex: 1 }} />
         {captcha.view}
         <Button kind="primary" title="Email me a code" loading={busy} disabled={!email.includes('@') || !captcha.ready} onPress={sendCode} />
@@ -89,14 +96,14 @@ export default function ForgotPassword() {
 
   return (
     <Screen>
-      <T size="xl">Choose a new password</T>
+      <T size="xl" header>Choose a new password</T>
       <T muted>{info}</T>
       <Field label="Code from the email" keyboardType="number-pad" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={10}
         value={code} onChangeText={(t) => { setCode(cleanCode(t)); verified.current = null; }} />
       <Field label="New password" secureTextEntry autoComplete="new-password" value={password} onChangeText={setPassword} />
       <Field label="New password again" secureTextEntry autoComplete="new-password" value={confirm} onChangeText={setConfirm} />
       <T muted size="sm">At least {MIN_PASSWORD} characters, with letters and numbers.</T>
-      {error ? <T style={{ color: C.danger }}>{error}</T> : null}
+      {error ? <ErrorText>{error}</ErrorText> : null}
       <View style={{ flex: 1 }} />
       {captcha.view}
       <Button kind="primary" title="Set new password" loading={busy} disabled={!isCode(code) || !password || !confirm} onPress={setNewPassword} />

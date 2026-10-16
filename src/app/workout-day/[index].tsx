@@ -15,7 +15,9 @@ export default function WorkoutDay() {
   const { program, refresh } = useData();
   const [editing, setEditing] = useState<number | null>(null);
   if (!program) return <Loading />;
-  const di = Math.min(Number(index) || 0, program.plan.days.length - 1);
+  // A hand-typed or stale link ("-1", "1.5", "abc") must open a real day, never index past the plan and crash.
+  const n = Number(index);
+  const di = Number.isInteger(n) && n >= 0 ? Math.min(n, program.plan.days.length - 1) : 0;
   const { plan } = program;
   const day = plan.days[di];
   const mins = Math.round(day.exercises.reduce((a, e) => a + exerciseMinutes(e.pinnedSets ?? e.sets), 0) / 5) * 5;
@@ -35,7 +37,7 @@ export default function WorkoutDay() {
     <Screen edges={['bottom']}>
       <View style={{ gap: 6 }}>
         <T size="micro">Workout {di + 1} of {plan.days.length}</T>
-        <T size="xl">{day.name}</T>
+        <T size="xl" header>{day.name}</T>
         <T muted>~{mins} min · {day.exercises.length} exercises</T>
       </View>
       <View style={[s.row, { flexWrap: 'wrap', gap: 6 }]}>{muscles.map((m) => <Chip key={m} label={MUSCLE_NAMES[m]} tone="accent" />)}</View>

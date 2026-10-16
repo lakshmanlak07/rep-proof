@@ -4,7 +4,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View,
+  AccessibilityInfo, ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View,
   type StyleProp, type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
@@ -18,6 +18,7 @@ export const C = {
   card: color.surface,
   sunken: color.sand,
   border: color.line,
+  control: color.control, // edges and rings of inputs, radios, checkboxes (3:1 or better)
   text: color.ink,
   text2: color.ink2,
   muted: color.muted,
@@ -28,6 +29,7 @@ export const C = {
   accentBorder: color.primaryBorder,
   raspberry: color.accent,
   onAccent: '#FFFFFF',
+  onAccentMuted: color.onPrimaryMuted, // secondary text on the burgundy hero
   ink: color.ink,
   pos: color.success, posSoft: color.successTint,
   warn: color.caution, warnSoft: color.cautionTint,
@@ -54,15 +56,25 @@ const TYPE: Record<Size, TextStyle> = {
   display: type.display,
 };
 const HEADINGS = new Set<Size>(['lg', 'xl', 'display']);
-type TProps = { children: ReactNode; style?: StyleProp<TextStyle>; muted?: boolean; size?: Size; bold?: boolean; color?: string; numberOfLines?: number };
-export function T({ children, style, muted, size = 'md', bold, color: c, numberOfLines }: TProps) {
+type TProps = { children: ReactNode; style?: StyleProp<TextStyle>; muted?: boolean; size?: Size; bold?: boolean; color?: string; numberOfLines?: number; onPress?: () => void; header?: boolean; label?: string };
+/** Text. With onPress it is an inline link (announced as a link to screen readers). */
+export function T({ children, style, muted, size = 'md', bold, color: c, numberOfLines, onPress, header, label }: TProps) {
   const weight = bold && !HEADINGS.has(size) && size !== 'micro' ? { fontFamily: font.bodyBold } : null;
   return (
-    <Text numberOfLines={numberOfLines}
+    <Text numberOfLines={numberOfLines} onPress={onPress} accessibilityLabel={label} accessibilityRole={onPress ? 'link' : header ? 'header' : undefined} suppressHighlighting
       style={[{ color: c ?? (muted ? C.muted : C.text) }, TYPE[size], weight, size === 'micro' && !c && { color: C.accent }, style]}>
       {children}
     </Text>
   );
+}
+
+/**
+ * Error or status message that screen readers announce when it appears or changes. Live regions are Android-only,
+ * so this announces on iOS too (and is ignored by the web build, which is development only).
+ */
+export function ErrorText({ children }: { children: string }) {
+  useEffect(() => { if (children) AccessibilityInfo.announceForAccessibility(children); }, [children]);
+  return <T style={{ color: C.danger }}>{children}</T>;
 }
 
 // ───────────────────────── Layout ─────────────────────────
@@ -75,9 +87,11 @@ export function Screen({ children, scroll = true, edges, pad = true }: { childre
           <View style={[inner, { width: '100%', maxWidth: 760 }]}>{children}</View>
         </ScrollView>
       ) : (
-        <View style={{ flex: 1, alignItems: 'center' }}>
-          <View style={[inner, { flex: 1, width: '100%', maxWidth: 760 }]}>{children}</View>
-        </View>
+        // Fills the screen (a flexGrow child pushes buttons to the bottom) yet still scrolls when large text makes the
+        // content taller than the screen (WCAG 1.4.4). Children grow with flexGrow, never flex: 1, which would shrink them.
+        <ScrollView contentContainerStyle={{ alignItems: 'center', flexGrow: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <View style={[inner, { flexGrow: 1, width: '100%', maxWidth: 760 }]}>{children}</View>
+        </ScrollView>
       )}
     </SafeAreaView>
   );
@@ -88,7 +102,7 @@ export function Header({ title, kicker, right }: { title: string; kicker?: strin
     <View style={[s.row, { justifyContent: 'space-between', alignItems: 'flex-end', paddingTop: SP.sm }]}>
       <View style={{ flex: 1, gap: 4 }}>
         {kicker ? <T size="sm" muted>{kicker}</T> : null}
-        <T size="xl">{title}</T>
+        <T size="xl" header>{title}</T>
       </View>
       {right}
     </View>
@@ -99,8 +113,8 @@ export function Section({ title, action, onAction, children }: { title: string; 
   return (
     <View style={{ gap: SP.md }}>
       <View style={[s.row, { justifyContent: 'space-between' }]}>
-        <T size="lg">{title}</T>
-        {action ? <Pressable onPress={onAction} hitSlop={10} accessibilityRole="button"><T size="sm" bold color={C.accent}>{action}</T></Pressable> : null}
+        <T size="lg" header>{title}</T>
+        {action ? <Pressable onPress={onAction} hitSlop={10} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}><T size="sm" bold color={C.accent}>{action}</T></Pressable> : null}
       </View>
       {children}
     </View>
@@ -138,22 +152,24 @@ type BtnKind = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'dark'
 type BtnProps = {
   title: string; onPress: () => void; kind?: BtnKind; size?: 'md' | 'sm'; disabled?: boolean; loading?: boolean;
   style?: StyleProp<ViewStyle>; icon?: keyof typeof Ionicons.glyphMap;
+  /** Screen-reader name when the visible title repeats on the screen; must contain the visible title. */
+  label?: string;
 };
 const BTN: Record<BtnKind, { bg: string; fg: string; border: string }> = {
-  primary: { bg: C.accent, fg: '#fff', border: C.accent },
+  primary: { bg: C.accent, fg: C.onAccent, border: C.accent },
   secondary: { bg: C.accentSoft, fg: C.accent, border: C.accentSoft },
   outline: { bg: 'transparent', fg: C.accent, border: C.accentBorder },
   ghost: { bg: 'transparent', fg: C.accent, border: 'transparent' },
-  danger: { bg: C.danger, fg: '#fff', border: C.danger },
-  dark: { bg: C.ink, fg: '#fff', border: C.ink },
-  light: { bg: '#fff', fg: C.accent, border: '#fff' }, // on the burgundy hero card
+  danger: { bg: C.danger, fg: C.onAccent, border: C.danger },
+  dark: { bg: C.ink, fg: C.onAccent, border: C.ink },
+  light: { bg: C.card, fg: C.accent, border: C.card }, // on the burgundy hero card
 };
 /** Pill button. Height 52 (44 small). Loading keeps the label, swaps the icon for a spinner and locks the button. */
-export function Button({ title, onPress, kind = 'secondary', size = 'md', disabled, loading, style, icon }: BtnProps) {
+export function Button({ title, onPress, kind = 'secondary', size = 'md', disabled, loading, style, icon, label }: BtnProps) {
   const off = disabled && !loading;
   const v = off ? { bg: C.sunken, fg: C.muted, border: C.sunken } : BTN[kind];
   return (
-    <Press accessibilityRole="button" accessibilityState={{ disabled: !!(disabled || loading), busy: !!loading }} onPress={onPress} disabled={disabled || loading} scaleTo={0.97}
+    <Press accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!(disabled || loading), busy: !!loading }} onPress={onPress} disabled={disabled || loading} scaleTo={0.97}
       style={[s.btn, size === 'sm' && { minHeight: touch.min, paddingHorizontal: 16 }, { backgroundColor: v.bg, borderColor: v.border }, style]}>
       <View style={s.row}>
         {loading ? <ActivityIndicator size="small" color={v.fg} /> : icon ? <Ionicons name={icon} size={18} color={v.fg} /> : null}
@@ -167,7 +183,7 @@ export function IconButton({ icon, onPress, label, tone }: { icon: keyof typeof 
   return (
     <Press accessibilityLabel={label} onPress={onPress} hitSlop={8} scaleTo={0.92}
       style={[{ width: touch.min, height: touch.min, borderRadius: touch.min / 2, backgroundColor: tone === 'accent' ? C.accent : C.card, borderWidth: 1, borderColor: tone === 'accent' ? C.accent : C.border, alignItems: 'center', justifyContent: 'center' }, shadow.s1]}>
-      <Ionicons name={icon} size={20} color={tone === 'accent' ? '#fff' : C.text} />
+      <Ionicons name={icon} size={20} color={tone === 'accent' ? C.onAccent : C.text} />
     </Press>
   );
 }
@@ -226,9 +242,9 @@ export function Chip({ label, tone = 'neutral', icon }: { label: string; tone?: 
 /** Filter pill (toggle). */
 export function Pill({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
   return (
-    <Press onPress={onPress} accessibilityState={{ selected: on }} scaleTo={0.96}
+    <Press onPress={onPress} accessibilityState={{ selected: on }} scaleTo={0.96} hitSlop={5} // 38 + 2×5 = 48 dp touch target
       style={{ paddingHorizontal: 16, minHeight: 38, borderRadius: R.pill, justifyContent: 'center', backgroundColor: on ? C.accent : C.card, borderWidth: 1, borderColor: on ? C.accent : C.border }}>
-      <Text style={[type.label, { fontSize: 14, color: on ? '#fff' : C.text }]}>{label}</Text>
+      <Text style={[type.label, { fontSize: 14, color: on ? C.onAccent : C.text }]}>{label}</Text>
     </Press>
   );
 }
@@ -236,12 +252,12 @@ export function Pill({ label, on, onPress }: { label: string; on: boolean; onPre
 /** Segmented control: sand track, white selected segment. */
 export function Segmented<V extends string>({ options, value, onChange }: { options: { value: V; label: string }[]; value: V; onChange: (v: V) => void }) {
   return (
-    <View style={{ flexDirection: 'row', backgroundColor: C.sunken, borderRadius: R.pill, padding: 4 }}>
+    <View style={{ flexDirection: 'row', backgroundColor: C.sunken, borderRadius: R.pill, padding: 4 }} accessibilityRole="radiogroup">
       {options.map((o) => {
         const on = o.value === value;
         return (
-          <Pressable key={o.value} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => onChange(o.value)}
-            style={[{ flex: 1, minHeight: 38, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center' }, on && { backgroundColor: C.card, ...shadow.s1 }]}>
+          <Pressable key={o.value} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onChange(o.value)}
+            style={[{ flex: 1, minHeight: 48, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center' }, on && { backgroundColor: C.card, ...shadow.s1 }]}>
             <Text style={[type.label, { fontSize: 14, color: on ? C.accent : C.text2 }]}>{o.label}</Text>
           </Pressable>
         );
@@ -256,14 +272,14 @@ type Opt<V> = { value: V; label: string; hint?: string; icon?: keyof typeof Ioni
 export function Choice<V extends string | number>({ options, value, onChange }: { options: Opt<V>[]; value: V | V[] | null; onChange: (v: V) => void }) {
   const multi = Array.isArray(value);
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: 10 }} accessibilityRole={multi ? undefined : 'radiogroup'}>
       {options.map((o) => {
         const on = multi ? (value as V[]).includes(o.value) : value === o.value;
         return (
-          <Press key={String(o.value)} accessibilityRole={multi ? 'checkbox' : 'radio'} accessibilityState={multi ? { checked: on } : { selected: on }} onPress={() => onChange(o.value)} scaleTo={0.985}
+          <Press key={String(o.value)} accessibilityRole={multi ? 'checkbox' : 'radio'} accessibilityState={{ checked: on }} onPress={() => onChange(o.value)} scaleTo={0.985}
             style={[s.choice, on && { borderColor: C.accent, backgroundColor: C.accentSoft }]}>
-            <View style={[{ width: 22, height: 22, borderRadius: multi ? 6 : 11, borderWidth: 2, borderColor: on ? C.accent : C.faint, alignItems: 'center', justifyContent: 'center' }, multi && on && { backgroundColor: C.accent }]}>
-              {on ? (multi ? <Ionicons name="checkmark" size={14} color="#fff" /> : <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: C.accent }} />) : null}
+            <View style={[{ width: 22, height: 22, borderRadius: multi ? 6 : 11, borderWidth: 2, borderColor: on ? C.accent : C.control, alignItems: 'center', justifyContent: 'center' }, multi && on && { backgroundColor: C.accent }]}>
+              {on ? (multi ? <Ionicons name="checkmark" size={14} color={C.onAccent} /> : <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: C.accent }} />) : null}
             </View>
             {o.icon ? <IconTile name={o.icon} tone={on ? 'accent' : 'neutral'} size={36} /> : null}
             <View style={{ flex: 1, gap: 2 }}>
@@ -281,15 +297,18 @@ export function Choice<V extends string | number>({ options, value, onChange }: 
 export function Field(props: TextInputProps & { label?: string; error?: string; hint?: string }) {
   const { label, error, hint, style, ...rest } = props;
   const [focus, setFocus] = useState(false);
+  // Decimal-comma keyboards type "72,5": store "72.5" so every Number() downstream reads it correctly.
+  const onChangeText = rest.keyboardType === 'decimal-pad' && rest.onChangeText
+    ? (t: string) => rest.onChangeText!(t.replace(',', '.')) : rest.onChangeText;
   return (
     <View style={{ gap: 6 }}>
       {label ? <Text style={[type.label, { color: C.text }]}>{label}</Text> : null}
-      <TextInput placeholderTextColor={C.faint} accessibilityLabel={rest.accessibilityLabel ?? label} {...rest}
-        onFocus={(e) => { setFocus(true); rest.onFocus?.(e); }} onBlur={(e) => { setFocus(false); rest.onBlur?.(e); }}
+      <TextInput placeholderTextColor={C.muted} accessibilityLabel={rest.accessibilityLabel ?? label} accessibilityHint={rest.accessibilityHint ?? error ?? hint} {...rest}
+        onChangeText={onChangeText} onFocus={(e) => { setFocus(true); rest.onFocus?.(e); }} onBlur={(e) => { setFocus(false); rest.onBlur?.(e); }}
         style={[s.input, focus && { borderColor: C.accent, borderWidth: 2 }, error ? { borderColor: C.danger } : null, style]} />
       {error ? (
-        <View style={[s.row, { gap: 6 }]}>
-          <Ionicons name="alert-circle-outline" size={16} color={C.danger} />
+        <View style={[s.row, { gap: 6 }]} accessibilityLiveRegion="polite">
+          <Ionicons name="alert-circle-outline" size={16} color={C.danger} importantForAccessibility="no" />
           <T size="sm" color={C.danger} style={{ flex: 1 }}>{error}</T>
         </View>
       ) : hint ? <T size="sm" muted>{hint}</T> : null}
@@ -298,11 +317,16 @@ export function Field(props: TextInputProps & { label?: string; error?: string; 
 }
 
 /** − value + number stepper (weights, reps). Tinted round buttons; the value stays directly editable. */
-export function Stepper({ value, onChange, step, unit, min = 0, big }: { value: string; onChange: (v: string) => void; step: number; unit?: string; min?: number; big?: boolean }) {
-  const n = Number(value) || 0;
-  const bump = (d: number) => onChange(String(Math.max(min, Math.round((n + d) * 100) / 100)));
+export function Stepper({ value, onChange, step, unit, min = 0, big, label = 'Value' }: { value: string; onChange: (v: string) => void; step: number; unit?: string; min?: number; big?: boolean; label?: string }) {
+  // "62,5" from comma keyboards is 62.5: pressing + must not reset it to 0 + step.
+  const n = Number(value.replace(',', '.')) || 0;
+  const bump = (d: number) => {
+    const next = Math.max(min, Math.round((n + d) * 100) / 100);
+    onChange(String(next));
+    AccessibilityInfo.announceForAccessibility(`${label} ${next}${unit ? ` ${unit}` : ''}`);
+  };
   const btn = (icon: 'remove' | 'add', d: number) => (
-    <Press accessibilityLabel={icon === 'add' ? 'Increase' : 'Decrease'} onPress={() => bump(d)} scaleTo={0.9}
+    <Press accessibilityLabel={`${icon === 'add' ? 'Increase' : 'Decrease'} ${label.toLowerCase()} by ${step}`} onPress={() => bump(d)} scaleTo={0.9}
       style={{ width: big ? 52 : touch.min, height: big ? 52 : touch.min, borderRadius: 26, backgroundColor: C.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
       <Ionicons name={icon} size={big ? 24 : 20} color={C.accent} />
     </Press>
@@ -310,8 +334,11 @@ export function Stepper({ value, onChange, step, unit, min = 0, big }: { value: 
   return (
     <View style={[s.row, { justifyContent: 'space-between' }]}>
       {btn('remove', -step)}
-      <View style={[{ alignItems: 'center', flex: 1 }, !big && { borderWidth: 1.5, borderColor: C.border, borderRadius: R.md, backgroundColor: C.card, minHeight: touch.primary, justifyContent: 'center' }]}>
-        <TextInput value={value} onChangeText={onChange} keyboardType="decimal-pad" selectTextOnFocus accessibilityLabel={unit ? `Value in ${unit}` : 'Value'}
+      <View style={[{ alignItems: 'center', flex: 1 }, !big && { borderWidth: 1.5, borderColor: C.control, borderRadius: R.md, backgroundColor: C.card, minHeight: touch.primary, justifyContent: 'center' }]}>
+        <TextInput value={value} onChangeText={(t) => onChange(t.replace(',', '.'))} keyboardType="decimal-pad" selectTextOnFocus accessibilityLabel={unit ? `${label} in ${unit}` : label}
+          accessibilityActions={[{ name: 'increment', label: `Increase ${label.toLowerCase()}` }, { name: 'decrement', label: `Decrease ${label.toLowerCase()}` }]}
+          onAccessibilityAction={(e) => bump(e.nativeEvent.actionName === 'increment' ? step : -step)}
+          maxFontSizeMultiplier={big ? 1.3 : undefined}
           style={[big ? type.numeric : type.h3, { color: C.text, textAlign: 'center', minWidth: 90, padding: 0, fontVariant: ['tabular-nums'] }]} />
         {unit ? <T muted size="sm">{unit}</T> : null}
       </View>
@@ -322,14 +349,14 @@ export function Stepper({ value, onChange, step, unit, min = 0, big }: { value: 
 
 // ───────────────────────── Progress & data ─────────────────────────
 /** Horizontal bar. `zone` draws a soft "productive range" band behind the fill. */
-export function ProgressBar({ value, max = 1, tone = 'accent', height = 8, zone }: { value: number; max?: number; tone?: Tone; height?: number; zone?: [number, number] }) {
+export function ProgressBar({ value, max = 1, tone = 'accent', height = 8, zone, label }: { value: number; max?: number; tone?: Tone; height?: number; zone?: [number, number]; label?: string }) {
   const pct = Math.max(0, Math.min(1, value / (max || 1)));
   const w = useSharedValue(0);
   useEffect(() => { w.value = withTiming(pct, { duration: 500 }); }, [pct, w]);
   const a = useAnimatedStyle(() => ({ width: `${w.value * 100}%` }));
   return (
     <View style={{ height, borderRadius: height / 2, backgroundColor: '#EFE4DC', overflow: 'hidden' }}
-      accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(pct * 100) }}>
+      accessible={!!label} accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: Math.round(pct * 100) }}>
       {zone ? <View style={{ position: 'absolute', top: 0, bottom: 0, left: `${zone[0] * 100}%`, width: `${(zone[1] - zone[0]) * 100}%`, backgroundColor: C.accentBorder }} /> : null}
       <Animated.View style={[{ height, borderRadius: height / 2, backgroundColor: TONES[tone].fg }, a]} />
     </View>
@@ -362,7 +389,8 @@ export function LineChart({ values, height = 140, label }: { values: number[]; h
   const pad = 14;
   const pts = values.map((v, i) => ({ x: pad + (i * (w - pad * 2)) / (values.length - 1), y: pad + (1 - (v - min) / span) * (height - pad * 2) }));
   return (
-    <View style={{ height }} accessibilityLabel={`${label}: ${values.join(', ')}`} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+    <View style={{ height }} accessible accessibilityRole="image" onLayout={(e) => setW(e.nativeEvent.layout.width)}
+      accessibilityLabel={`${label}: ${values.length} points, first ${values[0]}, latest ${values[values.length - 1]}, lowest ${min}, highest ${max}`}>
       {[0, 0.5, 1].map((g) => <View key={g} style={{ position: 'absolute', left: 0, right: 0, top: pad + g * (height - pad * 2), height: StyleSheet.hairlineWidth, backgroundColor: C.border }} />)}
       {w > 0 && pts.slice(1).map((p, i) => {
         const a = pts[i];
@@ -384,22 +412,25 @@ export function LineChart({ values, height = 140, label }: { values: number[]; h
 // ───────────────────────── Sheets ─────────────────────────
 /** Bottom sheet (28 top radius); centred card on wide screens. Closes on scrim tap and the hardware back button. */
 export function Sheet({ visible, onClose, title, children }: { visible: boolean; onClose: () => void; title?: string; children: ReactNode }) {
+  const { height } = useWindowDimensions();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={{ flex: 1, backgroundColor: C.scrim }} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
+      <Pressable style={{ flex: 1, backgroundColor: C.scrim }} onPress={onClose} accessible={false} importantForAccessibility="no" />
       <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' }}>
-        <View style={[{ width: '100%', maxWidth: 560, maxHeight: '85%', backgroundColor: C.card, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, padding: SP.xl, paddingBottom: 36, gap: SP.md }, shadow.s3]}>
+        <View accessibilityViewIsModal style={[{ width: '100%', maxWidth: 560, maxHeight: height * 0.85, backgroundColor: C.card, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, padding: SP.xl, paddingBottom: 36, gap: SP.md }, shadow.s3]}>
           <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: C.border }} />
           {title ? (
             <View style={[s.row, { justifyContent: 'space-between' }]}>
-              <T size="lg" style={{ flex: 1 }}>{title}</T>
-              <Press onPress={onClose} accessibilityLabel="Close" scaleTo={0.9}
+              <T size="lg" header style={{ flex: 1 }}>{title}</T>
+              <Press onPress={onClose} accessibilityLabel="Close" scaleTo={0.9} hitSlop={6}
                 style={{ width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }}>
                 <Ionicons name="close" size={18} color={C.text} />
               </Press>
             </View>
           ) : null}
-          {children}
+          <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: SP.md }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets showsVerticalScrollIndicator={false}>
+            {children}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -408,7 +439,7 @@ export function Sheet({ visible, onClose, title, children }: { visible: boolean;
 
 // ───────────────────────── States ─────────────────────────
 export function Loading() {
-  return <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center' }} accessibilityLabel="Loading"><ActivityIndicator color={C.accent} size="large" /></View>;
+  return <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center' }} accessible accessibilityLabel="Loading"><ActivityIndicator color={C.accent} size="large" /></View>;
 }
 
 /** Empty state: icon tile, one-line headline, one sentence, optional action. Never an apology, never blank. */
@@ -426,11 +457,13 @@ export function Empty({ icon, title, body, action, onAction }: { icon: keyof typ
 /** Banner: caution / error / info line with an icon (never color alone). */
 export function Banner({ text, tone = 'warn', action, onAction }: { text: string; tone?: 'warn' | 'danger' | 'accent'; action?: string; onAction?: () => void }) {
   const t = TONES[tone];
+  // A live region that mounts together with its text is often not read on Android: announce warnings and errors.
+  useEffect(() => { if (tone !== 'accent') AccessibilityInfo.announceForAccessibility(text); }, [text, tone]);
   return (
-    <View style={[s.row, { backgroundColor: t.bg, borderRadius: R.md, paddingHorizontal: 14, paddingVertical: 12 }]} accessibilityRole="alert">
+    <View style={[s.row, { backgroundColor: t.bg, borderRadius: R.md, paddingHorizontal: 14, paddingVertical: 12 }]} accessibilityRole="alert" accessibilityLiveRegion="polite">
       <Ionicons name={tone === 'accent' ? 'notifications-outline' : 'warning-outline'} size={18} color={t.fg} />
       <T size="sm" color={tone === 'accent' ? C.text : t.fg} style={{ flex: 1 }}>{text}</T>
-      {action && onAction ? <Pressable onPress={onAction} accessibilityRole="button" hitSlop={10}><T size="sm" bold color={C.accent}>{action}</T></Pressable> : null}
+      {action && onAction ? <Pressable onPress={onAction} accessibilityRole="button" hitSlop={14}><T size="sm" bold color={C.accent}>{action}</T></Pressable> : null}
     </View>
   );
 }
@@ -465,7 +498,7 @@ export const s = StyleSheet.create({
   btn: { minHeight: touch.primary, borderRadius: R.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22 },
   card: { borderRadius: radius.xl, borderWidth: 1, padding: 20, gap: 12 },
   choice: { minHeight: 64, borderRadius: R.md, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.card, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 },
-  input: { minHeight: touch.primary, borderRadius: R.md, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.card, color: C.text, fontFamily: font.body, fontSize: 16, paddingHorizontal: 16 },
+  input: { minHeight: touch.primary, borderRadius: R.md, borderWidth: 1.5, borderColor: C.control, backgroundColor: C.card, color: C.text, fontFamily: font.body, fontSize: 16, paddingHorizontal: 16 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
 });
 

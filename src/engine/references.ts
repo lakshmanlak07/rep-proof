@@ -14,6 +14,37 @@ export type Reference = {
 const r = (x: Reference) => x;
 
 export const REFERENCES: Record<string, Reference> = {
+  // Regional hypertrophy references checked against PubMed on 2026-10-11.
+  regional_chest: r({
+    id: 'regional_chest', pmid: '36334406', doi: '10.1016/j.jelekin.2022.102722', type: 'Acute crossover study',
+    citation: 'Albarello et al. (2022). Non-uniform excitation of pectoralis major induced by changes in bench press inclination leads to uneven variations in the cross-sectional area measured by panoramic ultrasonography. J Electromyogr Kinesiol 67:102722.',
+    population: '13 men, one session of flat and 45° incline bench press',
+    finding: 'The incline press worked the upper (clavicular) chest more and the flat press the mid and lower (sternocostal) chest, in muscle activity and in short-term swelling of each region. Acute measures, not long-term growth.',
+  }),
+  regional_triceps: r({
+    id: 'regional_triceps', pmid: '35819335', doi: '10.1080/17461391.2022.2100279', type: 'Randomized within-subject trial',
+    citation: 'Maeo et al. (2023). Triceps brachii hypertrophy is substantially greater after elbow extension training performed in the overhead versus neutral arm position. Eur J Sport Sci 23(7):1240-1250.',
+    population: '21 adults, 12 weeks, one arm per condition (MRI)',
+    finding: 'Overhead extensions grew the triceps long head about 1.5 times as much as pushdown-style extensions, and the whole triceps about 1.4 times, with lighter loads.',
+  }),
+  regional_glutes: r({
+    id: 'regional_glutes', pmid: '42842490', doi: '10.1519/JSC.0000000000005701', type: 'Randomized within-subject trial',
+    citation: 'Attarieh et al. (2026). Regional hypertrophy of the gluteal muscles is task-specific: differential responses to 10 weeks of hip extension versus hip abduction training. J Strength Cond Res (online ahead of print).',
+    population: '17 young adults, 10 weeks, one leg per exercise (MRI)',
+    finding: 'Hip extension grew the gluteus maximus more, mostly its lower part; hip abduction grew its upper part and the gluteus medius and minimus a little.',
+  }),
+  regional_calves: r({
+    id: 'regional_calves', pmid: '38156065', doi: '10.3389/fphys.2023.1272106', type: 'Randomized within-subject trial',
+    citation: 'Kinoshita et al. (2023). Triceps surae muscle hypertrophy is greater after standing versus seated calf-raise training. Front Physiol 14:1272106.',
+    population: '14 untrained adults, 12 weeks, one leg per condition (MRI)',
+    finding: 'Standing calf raises grew the gastrocnemius far more than seated ones, and the soleus grew about the same with either, so standing raises covered both.',
+  }),
+  regional_biceps: r({
+    id: 'regional_biceps', pmid: '40082069', doi: '10.1002/ejsc.12279', type: 'Randomized within-subject trial',
+    citation: 'Attarieh et al. (2025). Comparison between shoulder flexed and extended positions in elbow flexion resistance training on regional hypertrophy and maximum strength: preacher versus Bayesian cable curls. Eur J Sport Sci 25(4):e12279.',
+    population: '15 young men, 10 weeks, one arm per exercise (ultrasound)',
+    finding: 'Preacher and behind-the-body cable curls grew every region of the biceps and the brachialis about the same.',
+  }),
   volume_dose: r({
     id: 'volume_dose', pmid: '27433992', doi: '10.1080/02640414.2016.1210197', type: 'Systematic review and meta-analysis',
     citation: 'Schoenfeld, Ogborn & Krieger (2017). Dose-response relationship between weekly resistance training volume and increases in muscle mass. J Sports Sci 35(11):1073-1082.',
@@ -132,7 +163,7 @@ export const REFERENCES: Record<string, Reference> = {
     id: 'protein', pmid: '28698222', doi: '10.1136/bjsports-2017-097608', type: 'Systematic review, meta-analysis and meta-regression',
     citation: 'Morton et al. (2018). A systematic review, meta-analysis and meta-regression of the effect of protein supplementation on resistance training-induced gains in muscle mass and strength in healthy adults. BJSM 52(6):376-384.',
     population: '49 trials, 1,863 participants',
-    finding: 'Extra protein increased strength and muscle gains; above about 1.6 g per kg per day there was no further gain in lean mass.',
+    finding: 'Extra protein increased strength and muscle gains; above about 1.6 g per kg per day there was no further gain in lean mass (95% confidence interval up to about 2.2 g per kg).',
   }),
   protein_distribution: r({
     id: 'protein_distribution', pmid: '23459753', doi: '10.1113/jphysiol.2012.244897', type: 'Randomized trial (short-term)',
@@ -182,5 +213,43 @@ export const REFERENCES: Record<string, Reference> = {
     citation: 'Grgic et al. (2020). Wake up and smell the coffee: caffeine supplementation and exercise performance, an umbrella review of 21 published meta-analyses. BJSM 54(11):681-688.',
     population: '21 meta-analyses, mostly young men',
     finding: 'Caffeine improved muscle strength, muscle endurance and power, with moderate-quality evidence.',
+  }),
+  // Added 2026-10-09, checked against PubMed records (authors, year, journal, DOI, abstract).
+  rpe_scale: r({
+    id: 'rpe_scale', pmid: '26049792', doi: '10.1519/JSC.0000000000001049', type: 'Comparative study',
+    citation: 'Zourdos et al. (2016). Novel resistance training-specific rating of perceived exertion scale measuring repetitions in reserve. JSCR 30(1):267-275.',
+    population: '29 adults, experienced and novice squatters',
+    finding: 'Defined the RIR-based RPE scale (RPE 10 = 0 reps in reserve, RPE 9 = 1, and so on). Higher RPE went with slower bar speed in both groups.',
+  }),
+  monitoring_review: r({
+    id: 'monitoring_review', pmid: '33312273', doi: '10.2478/hukin-2020-0011', type: 'Review',
+    citation: 'Helms et al. (2020). Methods for regulating and monitoring resistance training. J Hum Kinet 74:23-42.',
+    population: '90 studies',
+    finding: 'Barbell velocity and RIR-based RPE were strongly associated with training performance and are practical ways to adjust load and volume; evidence for improving results is preliminary.',
+  }),
+  // Added 2026-10-09 for the I-02 explainers, checked against PubMed records (authors, year, journal, DOI, abstract).
+  attention_focus: r({
+    id: 'attention_focus', pmid: '29533715', doi: '10.1080/17461391.2018.1447020', type: 'Randomized controlled trial',
+    citation: 'Schoenfeld, Vigotsky, Contreras et al. (2018). Differential effects of attentional focus strategies during long-term resistance training. Eur J Sport Sci 18(5):705-712.',
+    population: '30 untrained college-aged men, 8 weeks',
+    finding: 'Focusing on contracting the target muscle grew the elbow flexors more than focusing on the lift outcome (12.4% vs 6.9% thickness); quadriceps growth was similar.',
+  }),
+  rep_duration: r({
+    id: 'rep_duration', pmid: '25601394', doi: '10.1007/s40279-015-0304-0', type: 'Systematic review and meta-analysis',
+    citation: 'Schoenfeld, Ogborn & Krieger (2015). Effect of repetition duration during resistance training on muscle hypertrophy: a systematic review and meta-analysis. Sports Med 45(4):577-585.',
+    population: '8 studies, sets taken to failure',
+    finding: 'Muscle growth was similar with repetition durations from 0.5 to 8 seconds; very slow repetitions (over 10 seconds) may be inferior, but few studies tested them.',
+  }),
+  volume_dose_2025: r({
+    id: 'volume_dose_2025', pmid: '41343037', doi: '10.1007/s40279-025-02344-w', type: 'Systematic review with meta-regressions',
+    citation: 'Pelland, Remmert, Robinson, Hinson & Zourdos (2025). The resistance training dose response: meta-regressions exploring the effects of weekly volume and frequency on muscle hypertrophy and strength gains. Sports Med 56(2):481-505.',
+    population: '67 studies, 2,058 participants (79% male)',
+    finding: 'Muscle size and strength gains rose with weekly sets, with diminishing returns that were more pronounced for strength. Counting indirect sets as half a set predicted results best.',
+  }),
+  creatine_issn: r({
+    id: 'creatine_issn', pmid: '28615996', doi: '10.1186/s12970-017-0173-z', type: 'Position stand (narrative review)',
+    citation: 'Kreider et al. (2017). International Society of Sports Nutrition position stand: safety and efficacy of creatine supplementation in exercise, sport, and medicine. J Int Soc Sports Nutr 14:18.',
+    population: 'Review of human studies, healthy people and patient groups',
+    finding: 'Short- and long-term creatine use (up to 30 g a day for 5 years) was reported safe and well tolerated in healthy people; the authors suggest a habitual low intake such as 3 g a day.',
   }),
 };

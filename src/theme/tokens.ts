@@ -9,11 +9,13 @@ export const color = {
   ink: '#2A1620', // text 15.8:1
   ink2: '#5E4A53', // body 7.6:1
   muted: '#74606A', // captions 5.4:1
-  line: '#E9DDD3', // dividers
+  line: '#E9DDD3', // dividers (decorative: never the only edge of a control)
+  control: '#8A767F', // input borders, radio and checkbox rings: 4.2:1 on white, 3.6:1 on sand (WCAG 1.4.11 needs 3:1)
   primary: '#7A1F3D', // burgundy-600, 10:1 on white
   primaryPressed: '#651631', // burgundy-700
   primaryTint: '#F7E8EC', // burgundy-50, selected
   primaryBorder: '#EFD3DB', // burgundy-100, borders on tint
+  onPrimaryMuted: '#F3DCE3', // secondary text on burgundy fills, 7.7:1
   accent: '#C2315F', // raspberry-500
   success: '#2F6B4F', successTint: '#E6F2EB',
   caution: '#8A5200', cautionTint: '#FBEFD7',
@@ -58,7 +60,7 @@ export const shadow = {
 } satisfies Record<string, ViewStyle>;
 
 /** Touch targets: 44 minimum, 52 for primary actions. */
-export const touch = { min: 44, primary: 52 } as const;
+export const touch = { min: 48, primary: 52 } as const; // 48 dp: Android minimum touch target
 
 /** Shell breakpoints: bottom tab bar under 1024, left rail (248 px) from 1024. */
 export const breakpoint = { tablet: 640, rail: 1024 } as const;

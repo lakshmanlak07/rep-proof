@@ -1,5 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
@@ -7,19 +7,27 @@ import { exerciseMinutes, MUSCLE_NAMES, recommendSplit, SPLIT_DAYS, SPLIT_NAMES 
 import type { SplitId } from '@/engine/types.ts';
 import { supabase } from '@/lib/supabase';
 import { isDeload, localDate, saveProgram, startOfWeek, toProfile, track, updateProfile, useData } from '@/lib/data';
-import { Button, C, Card, Chip, Choice, Header, IconTile, Section, Sheet, s, Screen, T } from '@/ui';
+import { Banner, Button, C, Card, Chip, Choice, Header, IconTile, Section, Sheet, s, Screen, T } from '@/ui';
 import { alert, attempt } from '@/lib/alert';
+import { reportError } from '@/lib/crash';
+import { once } from '@/lib/workoutSave';
 import { WhyBody } from '@/why';
 
 export default function Plan() {
   const { profile, program, refresh } = useData();
   const [schedule, setSchedule] = useState<{ days: number; split: SplitId } | null>(null);
   const [doneDays, setDoneDays] = useState<number[]>([]);
-  useFocusEffect(useCallback(() => {
-    supabase.from('workouts').select('day_index').not('finished_at', 'is', null).gte('finished_at', startOfWeek()).then(({ data }) => {
+  const [failed, setFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const rebuilding = useRef(false);
+  const load = useCallback(() => {
+    setFailed(false);
+    supabase.from('workouts').select('day_index').not('finished_at', 'is', null).gte('finished_at', startOfWeek()).then(({ data, error }) => {
+      setFailed(!!error);
       setDoneDays((data ?? []).map((r) => r.day_index as number));
-    });
-  }, []));
+    }, () => setFailed(true));
+  }, []);
+  useFocusEffect(load);
   if (!profile || !program) return null;
   const { plan } = program;
   const deload = isDeload(profile.deload_until);
@@ -40,18 +48,27 @@ export default function Plan() {
     ]);
   }
 
-  async function saveSchedule() {
+  // Single-flight: a double tap must not rebuild the plan twice.
+  const saveSchedule = () => once(rebuilding, async () => {
     const { days, split } = schedule!;
+    setSaving(true);
     const saved = await attempt(async () => {
       await updateProfile(profile!.id, { days });
       // Logged weights carry over: suggestions read history by exercise, not by program.
-      await saveProgram(toProfile({ ...profile!, days }, plan), split, 0);
+      // Profile and plan must agree: if the rebuild fails, undo the profile change before reporting the failure.
+      try {
+        await saveProgram(toProfile({ ...profile!, days }, plan), split, 0);
+      } catch (e) {
+        await updateProfile(profile!.id, { days: profile!.days }).catch((err) => reportError(err, 'profile_revert'));
+        throw e;
+      }
     }, 'rebuild your plan');
+    setSaving(false);
     if (!saved) return;
     track('schedule_changed', { days, split });
     setSchedule(null);
     await refresh();
-  }
+  });
 
   const n = plan.days.length;
   const slots = SLOTS[n] ?? SLOTS[3];
@@ -63,6 +80,7 @@ export default function Plan() {
       <Header kicker={`${SPLIT_NAMES[plan.split]} · ${n} days a week`} title="Your plan" />
       {deload ? <Chip tone="accent" icon="leaf" label={`Deload week until ${profile.deload_until}`} /> : null}
 
+      {failed ? <Banner tone="danger" text="Could not load this week's finished workouts. Check your connection." action="Retry" onAction={load} /> : null}
       <Section title="This week">
         <View style={{ gap: 10 }}>
           {week.map((di, d) => {
@@ -70,7 +88,7 @@ export default function Plan() {
             if (di < 0) {
               return (
                 <View key={d} style={[s.row, { paddingHorizontal: 4, minHeight: 36 }]}>
-                  <T size="micro" style={{ width: 40 }} color={today ? C.accent : C.faint}>{DAYS[d]}</T>
+                  <T size="micro" style={[{ width: 40 }, today && { textDecorationLine: 'underline' }]} label={today ? `${DAYS[d]}, today` : undefined} color={today ? C.accent : C.muted}>{DAYS[d]}</T>
                   <T muted size="sm">Rest</T>
                 </View>
               );
@@ -82,7 +100,7 @@ export default function Plan() {
             const mins = Math.round(day.exercises.reduce((a, e) => a + exerciseMinutes(e.pinnedSets ?? e.sets), 0) / 5) * 5;
             return (
               <View key={d} style={s.row}>
-                <T size="micro" style={{ width: 40, alignSelf: 'flex-start', paddingTop: 20 }} color={today ? C.accent : C.muted}>{DAYS[d]}</T>
+                <T size="micro" style={[{ width: 40, alignSelf: 'flex-start', paddingTop: 20 }, today && { textDecorationLine: 'underline' }]} label={today ? `${DAYS[d]}, today` : undefined} color={today ? C.accent : C.muted}>{DAYS[d]}</T>
                 <Card onPress={() => router.push({ pathname: '/workout-day/[index]', params: { index: String(di) } })}
                   style={[{ flex: 1, gap: 8 }, next && { borderColor: C.accent, borderWidth: 1.5 }]}>
                   <View style={[s.row, { justifyContent: 'space-between' }]}>
@@ -99,9 +117,9 @@ export default function Plan() {
         <T muted size="sm">Suggested layout. RepProof follows your order, so a missed day just shifts the week.</T>
       </Section>
 
-      <Section title="Volume this week" action="Details" onAction={() => router.push('/volume')}>
+      <Section title="Planned volume" action="Details" onAction={() => router.push('/volume')}>
         <Card onPress={() => router.push('/volume')}>
-          <T muted size="sm">Hard sets done vs planned, counted from your logs. Warm-ups do not count.</T>
+          <T muted size="sm">Hard sets planned per muscle each week. Warm-ups do not count. Details shows what you have logged.</T>
           {Object.keys(plan.weeklySets).slice(0, 4).map((m) => {
             const planned = plan.weeklySets[m as keyof typeof plan.weeklySets]!;
             return (
@@ -133,14 +151,14 @@ export default function Plan() {
           <T muted size="sm">Your logged weights carry over. Pins reset and the week starts from day 1.</T>
           <View style={[s.row, { flexWrap: 'wrap' }]}>
             {[2, 3, 4, 5, 6].map((d) => (
-              <Button key={d} title={`${d} days`} kind={schedule.days === d ? 'primary' : 'secondary'}
+              <Button key={d} title={`${d} days`} label={schedule.days === d ? `${d} days, selected` : undefined} kind={schedule.days === d ? 'primary' : 'secondary'}
                 onPress={() => setSchedule({ days: d, split: SPLIT_DAYS[schedule.split].includes(d) ? schedule.split : recommendSplit(d) })} />
             ))}
           </View>
           <Choice value={schedule.split} onChange={(sp) => setSchedule({ ...schedule, split: sp })}
             options={(Object.keys(SPLIT_DAYS) as SplitId[]).filter((sp) => SPLIT_DAYS[sp].includes(schedule.days))
               .map((sp) => ({ value: sp, label: SPLIT_NAMES[sp], hint: sp === recommendSplit(schedule.days) ? 'Recommended' : undefined }))} />
-          <Button kind="primary" title="Rebuild my plan" onPress={saveSchedule} />
+          <Button kind="primary" title="Rebuild my plan" loading={saving} onPress={saveSchedule} />
         </>) : null}
       </Sheet>
     </Screen>

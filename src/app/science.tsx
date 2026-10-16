@@ -1,12 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
+import { searchGlossary } from '@/engine/glossary.ts';
 import { CAUTIONS, DEBATES, MISSION, MOTTO, PRINCIPLES, TIERS, TOPICS, type Topic } from '@/engine/science.ts';
 import type { EvidenceLabel } from '@/engine/types.ts';
 import { track } from '@/lib/data';
-import { C, Card, Field, Header, Pill, s, Screen, T } from '@/ui';
+import { C, Card, Empty, Field, Header, Pill, s, Screen, Segmented, T } from '@/ui';
 import { Badge, RefLinks } from '@/why';
 
 const FILTERS: { value: EvidenceLabel | 'all'; label: string }[] = [
@@ -21,6 +22,7 @@ export function ScienceView({ tab }: { tab?: boolean }) {
   const [open, setOpen] = useState<string | null>(linked?.title ?? null);
   const [filter, setFilter] = useState<EvidenceLabel | 'all'>('all');
   const [query, setQuery] = useState('');
+  const [view, setView] = useState<'topics' | 'glossary'>('topics');
   const q = query.trim().toLowerCase();
   const shown = TOPICS.filter((t) => t !== linked && (filter === 'all' || t.label === filter)
     && (!q || `${t.title} ${t.shows} ${t.inApp}`.toLowerCase().includes(q)));
@@ -36,6 +38,8 @@ export function ScienceView({ tab }: { tab?: boolean }) {
         {card(linked)}
       </>) : null}
 
+      <Segmented value={view} onChange={(v) => { setView(v); setQuery(''); }} options={[{ value: 'topics', label: 'Topics' }, { value: 'glossary', label: 'Glossary' }]} />
+      {view === 'glossary' ? <Glossary query={query} setQuery={setQuery} open={(title) => { setView('topics'); setQuery(''); setOpen(title); }} /> : (<>
       <Field placeholder="Search topics" value={query} onChangeText={setQuery} accessibilityLabel="Search topics" returnKeyType="search" />
       <View style={[s.row, { flexWrap: 'wrap', gap: 8 }]}>
         {FILTERS.map((f) => <Pill key={f.value} label={f.label} on={filter === f.value} onPress={() => setFilter(f.value)} />)}
@@ -75,6 +79,8 @@ export function ScienceView({ tab }: { tab?: boolean }) {
         {DEBATES.map((d) => <T key={d} muted>• {d}</T>)}
         <T size="sm">{"When the evidence is unclear, we say so instead of picking a side."}</T>
       </Card>
+      </>)}
+
       <T muted size="sm">Studies checked against PubMed records, October 2026. Not medical advice.</T>
     </Screen>
   );
@@ -84,15 +90,41 @@ export default function Science() {
   return <ScienceView />;
 }
 
+/** Glossary: plain-language definitions, each with its evidence label and a link to its topic. */
+function Glossary({ query, setQuery, open }: { query: string; setQuery: (q: string) => void; open: (topic: string) => void }) {
+  const terms = searchGlossary(query);
+  return (<>
+    <Field placeholder="Search terms, e.g. RPE" value={query} onChangeText={setQuery} accessibilityLabel="Search the glossary" returnKeyType="search" />
+    {terms.length ? terms.map((g) => (
+      <Card key={g.term} flat>
+        <View style={[s.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
+          <View style={{ flex: 1 }}>
+            <T bold>{g.term}</T>
+            {g.also ? <T muted size="sm">{g.also}</T> : null}
+          </View>
+          <Badge label={g.label} />
+        </View>
+        <T>{g.meaning}</T>
+        {g.topic ? <T size="sm" bold color={C.accent} onPress={() => open(g.topic!)}>Read the evidence: {g.topic}</T> : null}
+      </Card>
+    )) : <Empty icon="search" title="No matching term" body="Try a shorter word, or browse the topics." />}
+  </>);
+}
+
 /** Topic card: label, title, plain-language read. Expanded: source, limitations and what to do (Board 07). */
 function TopicCard({ t, expanded, onToggle }: { t: Topic; expanded: boolean; onToggle: () => void }) {
   return (
-    <Card onPress={() => { onToggle(); if (!expanded) track('science_topic', { topic: t.title }); }}>
-      <View style={[s.row, { justifyContent: 'space-between' }]}>
-        <Badge label={t.label} />
-        <Ionicons name={expanded ? 'chevron-up' : 'chevron-forward'} size={18} color={C.muted} accessibilityLabel={expanded ? 'Collapse' : 'Expand'} />
-      </View>
-      <T size="lg">{t.title}</T>
+    <Card>
+      {/* Only this part toggles: links inside a button cannot be reached by screen readers. */}
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => { onToggle(); if (!expanded) track('science_topic', { topic: t.title }); }}
+        style={{ gap: 12 }}>
+        <View style={[s.row, { justifyContent: 'space-between' }]}>
+          <Badge label={t.label} />
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-forward'} size={18} color={C.muted} />
+        </View>
+        <T size="lg">{t.title}</T>
+        {expanded ? null : <T muted numberOfLines={2}>{t.shows}</T>}
+      </Pressable>
       {expanded ? (<>
         <T size="micro">In plain language</T>
         <T>{t.shows}</T>
@@ -105,7 +137,7 @@ function TopicCard({ t, expanded, onToggle }: { t: Topic; expanded: boolean; onT
         <T size="micro">{t.refIds.length ? 'Source' : 'Built on'}</T>
         {t.refIds.length ? <RefLinks ids={t.refIds} />
           : <T muted size="sm">Our rule, not a study result. No study measures this directly, so it is labelled as a RepProof rule.</T>}
-      </>) : <T muted numberOfLines={2}>{t.shows}</T>}
+      </>) : null}
     </Card>
   );
 }

@@ -18,7 +18,8 @@ function validItem(it: unknown, knownExercise: (id: string) => boolean): boolean
   if (!isObj(e) || typeof e.text !== 'string' || !LABELS.includes(e.label as string) || !Array.isArray(e.refIds)) return false;
   if (!Array.isArray(it.history) || !(it.prevBest === null || num(it.prevBest))) return false;
   if (!Array.isArray(it.sets) || it.sets.length > 20) return false;
-  return it.sets.every((r) => isObj(r) && typeof r.weight === 'string' && typeof r.reps === 'string' && typeof r.rir === 'string' && typeof r.done === 'boolean');
+  return it.sets.every((r) => isObj(r) && typeof r.weight === 'string' && typeof r.reps === 'string' && typeof r.rir === 'string' && typeof r.done === 'boolean'
+    && (r.rpe === undefined || typeof r.rpe === 'string'));
 }
 
 /** True only for a draft this user started that the workout screen can render safely. */

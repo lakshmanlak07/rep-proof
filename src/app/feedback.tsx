@@ -32,7 +32,7 @@ export default function Feedback() {
   return (
     <Screen edges={['bottom']}>
       <T muted>Bugs, confusing screens, ideas, anything. Please do not include medical details.</T>
-      <Field value={message} onChangeText={setMessage} multiline maxLength={2000} placeholder="What should we know?"
+      <Field value={message} onChangeText={setMessage} multiline maxLength={2000} placeholder="What should we know?" accessibilityLabel="Your feedback"
         style={{ minHeight: 140, textAlignVertical: 'top', paddingTop: 12 }} />
       <Button kind="primary" title="Send feedback" loading={busy} disabled={message.trim().length < 3} onPress={send} />
     </Screen>

@@ -49,7 +49,14 @@ export function suggest(
 
   // Performance drop: under the rep range two sessions running.
   if (below(last) && below(history[1])) {
-    const next = Math.max(0, Math.min(weight - inc, round(weight * 0.95, unit)));
+    const next = Math.max(0, round(Math.min(weight - inc, weight * 0.95), unit)); // on the plate grid
+    // Already at the smallest loadable step (or at bodyweight): dropping would mean "lift nothing". Hold instead.
+    if (next <= 0) {
+      return {
+        kind: 'hold', weight, reps: repMin, sets,
+        explanation: { text: `Same weight: you were under ${repMin} reps two sessions in a row, but ${fmt(weight, unit)} is already the lightest step. Aim for ${repMin} reps with good form, or swap to an easier variation.`, label: 'rule', refIds: [] },
+      };
+    }
     return {
       kind: 'drop', weight: next, reps: repMin, sets,
       explanation: { text: `Down to ${fmt(next, unit)}: you were under ${repMin} reps two sessions in a row. Resetting a little lets you build back up.`, label: 'rule', refIds: [] },

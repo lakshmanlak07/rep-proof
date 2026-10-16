@@ -11,13 +11,18 @@ import { InsightCard } from '@/why';
 export default function Insights() {
   const { profile } = useData();
   const [notes, setNotes] = useState<CoachNotes | null>(null);
-  const [checkins, setCheckins] = useState<Parameters<typeof readiness>[0]>([]);
+  const [checkins, setCheckins] = useState<Parameters<typeof readiness>[0] | null>(null); // null = not loaded or failed
+  const [failed, setFailed] = useState(false);
   const userId = profile?.id;
   useFocusEffect(useCallback(() => {
     if (userId) setNotes(loadCoachNotes(userId));
-    recentWorkouts(3).then((r) => setCheckins(r.map((w) => w.checkin))).catch(() => {});
+    recentWorkouts(3).then((r) => { setCheckins(r.map((w) => w.checkin)); setFailed(false); }).catch(() => setFailed(true));
   }, [userId]));
-  const ready = readiness(checkins, isDeload(profile?.deload_until ?? null));
+  // Not loaded yet or failed is not "no check-in" (BUG-14): say so instead of guessing.
+  const ready = failed && !checkins
+    ? { label: 'Unknown', detail: 'Could not load your recent check-ins; check your connection', tone: 'neutral' as const, score: null }
+    : !checkins ? { label: 'Loading', detail: 'Loading your recent check-ins', tone: 'neutral' as const, score: null }
+    : readiness(checkins, isDeload(profile?.deload_until ?? null));
   const rank = (k: string) => (k === 'progressing' || k === 'too_new' ? 1 : 0);
   const items = [...(notes?.decisions ?? [])].sort((a, b) => rank(a.kind) - rank(b.kind)).map(insightFromDecision);
   return (

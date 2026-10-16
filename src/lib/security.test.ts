@@ -123,3 +123,47 @@ test('analytics never receive health answers', () => {
     assert.ok(!/sleep|soreness|energy|pain|bad:|checkin:\s*[a-z]+\.checkin\b/i.test(c) || /checkin: !!/.test(c), c);
   }
 });
+
+test('network calls have a deadline: a request that never answers fails instead of spinning forever', async () => {
+  const { timedFetch } = await import('./net.ts');
+  // A server that never responds, but honours the abort signal like real fetch.
+  const hang = ((_: unknown, init?: RequestInit) => new Promise((_r, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+  })) as typeof fetch;
+  const started = Date.now();
+  await assert.rejects(timedFetch(hang, 30)('https://example.invalid'), /aborted/);
+  assert.ok(Date.now() - started < 1000);
+  // A fast answer passes straight through, and the caller's own abort still works.
+  const ok = (async () => new Response('fine')) as typeof fetch;
+  assert.equal(await (await timedFetch(ok, 30)('https://example.invalid')).text(), 'fine');
+  const mine = new AbortController();
+  const pending = timedFetch(hang, 10_000)('https://example.invalid', { signal: mine.signal });
+  mine.abort();
+  await assert.rejects(pending, /aborted/);
+});
+
+test('food function: the USDA key is never sent along a redirect', () => {
+  const src = readFileSync(fileURLToPath(new URL('../../supabase/functions/food/index.ts', import.meta.url)), 'utf8');
+  assert.match(src, /redirect: 'X-Api-Key' in headers \? 'error'/);
+  assert.match(src, /get\(url, \{ 'X-Api-Key': key \}\)/); // the keyed call goes through that helper
+});
+
+test('network deadline also covers a response body that stalls after the headers', async () => {
+  const { timedFetch } = await import('./net.ts');
+  // Headers arrive at once; the body never finishes but honours the abort, like a streaming fetch.
+  const stall = ((_: unknown, init?: RequestInit) => Promise.resolve({
+    json: () => new Promise((_r, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))),
+  })) as unknown as typeof fetch;
+  const res = await timedFetch(stall, 30)('https://example.invalid');
+  await assert.rejects(res.json(), /aborted/);
+});
+
+test('food query cap counts code points, so an emoji is never cut into an unencodable half', () => {
+  const r = parseRequest(JSON.stringify({ query: 'a'.repeat(99) + '\u{1F34E}\u{1F34E}' }));
+  assert.ok('query' in r);
+  const q = (r as { query: string }).query;
+  assert.doesNotThrow(() => encodeURIComponent(q));
+  assert.equal(Array.from(q).length, 100);
+  const lone = parseRequest('{"query":"apple \\ud83c"}');
+  assert.ok('query' in lone && (lone as { query: string }).query === 'apple');
+});

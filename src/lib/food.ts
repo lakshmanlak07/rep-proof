@@ -2,7 +2,10 @@ import { localDate, must, ok } from './data';
 import { searchCommon } from './commonFoods';
 import { rescale } from './portion';
 import { dedupe, fromOff, OFF_FIELDS, OFF_HEADERS, type Food, type Macros } from './off';
+import { timedFetch } from './net';
 import { supabase } from './supabase';
+
+const offFetch = timedFetch(); // direct Open Food Facts calls get the same deadline as the Supabase client
 
 export type { Food, Macros };
 export type Meal = 'breakfast' | 'lunch' | 'dinner' | 'snack';
@@ -45,18 +48,18 @@ const toFoods = (rows: Record<string, unknown>[] | undefined) => dedupe((rows ??
 async function offSearch(query: string): Promise<Food[]> {
   const q = encodeURIComponent(query);
   try {
-    const res = await fetch(`https://search.openfoodfacts.org/search?q=${q}&page_size=30&fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
+    const res = await offFetch(`https://search.openfoodfacts.org/search?q=${q}&page_size=30&fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
     if (res.ok) return toFoods((await res.json()).hits);
   } catch {
     // fall through to the classic endpoint
   }
-  const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${q}&search_simple=1&json=1&page_size=30&fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
+  const res = await offFetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${q}&search_simple=1&json=1&page_size=30&fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
   if (!res.ok) throw new FoodError('Food search had a problem. Try again shortly.');
   return toFoods((await res.json()).products);
 }
 
 async function offBarcode(code: string): Promise<Food[]> {
-  const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
+  const res = await offFetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`, { headers: OFF_HEADERS });
   if (res.status === 404) return [];
   if (!res.ok) throw new FoodError('Barcode lookup had a problem. Try again shortly.');
   const food = fromOff((await res.json()).product);
@@ -89,9 +92,12 @@ export async function updateLogGrams(log: FoodLog, grams: number) {
 
 /** Packaged foods: Open Food Facts first (worldwide), then USDA branded foods via the edge function. */
 export async function byBarcode(code: string): Promise<Food[]> {
-  const off = await offBarcode(code).catch(() => [] as Food[]);
+  let offFailed = false;
+  const off = await offBarcode(code).catch(() => { offFailed = true; return [] as Food[]; });
   if (off.length) return off;
-  return callFood({ upc: code }).catch(() => []);
+  const usda = await callFood({ upc: code }); // throws a FoodError with a clear message on failure
+  if (!usda.length && offFailed) throw new FoodError('Could not check every food database. Try again shortly.');
+  return usda;
 }
 
 /** fdc_id column: USDA id for USDA foods, 0 for Open Food Facts and custom foods. */
@@ -119,6 +125,14 @@ export async function recentFoods(): Promise<Food[]> {
 export async function dayLogs(day = localDate()): Promise<FoodLog[]> {
   const rows = must(await supabase.from('food_logs').select('id, meal, fdc_id, name, grams, kcal, protein, fat, carbs').eq('logged_on', day).order('created_at'));
   return rows.map((r) => ({ ...r, grams: Number(r.grams), kcal: Number(r.kcal), protein: Number(r.protein), fat: Number(r.fat), carbs: Number(r.carbs) })) as FoodLog[];
+}
+
+/** Food log rows for the last `days` days (for the intake trend). */
+export async function recentLogTotals(days = 14): Promise<{ logged_on: string; kcal: number; protein: number }[]> {
+  const from = new Date();
+  from.setDate(from.getDate() - (days - 1));
+  return must(await supabase.from('food_logs').select('logged_on, kcal, protein').gte('logged_on', localDate(from)).limit(2000))
+    .map((r) => ({ logged_on: r.logged_on as string, kcal: Number(r.kcal), protein: Number(r.protein) }));
 }
 
 export async function addLogs(meal: Meal, items: Omit<FoodLog, 'id' | 'meal'>[], day = localDate()) {

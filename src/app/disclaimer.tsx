@@ -12,8 +12,8 @@ export default function Disclaimer() {
   return (
     <Screen>
       <StepProgress step={2} total={2} onBack={() => router.back()} />
-      <View style={{ flex: 1, justifyContent: 'flex-end', gap: 16 }}>
-        <T size="xl">Before we start</T>
+      <View style={{ flexGrow: 1, justifyContent: 'flex-end', gap: 16 }}>
+        <T size="xl" header>Before we start</T>
         <T muted>A few honest things about what RepProof is.</T>
         <Card><T>{DISCLAIMER}</T></Card>
         <T muted size="sm">You can read this again any time in Settings.</T>

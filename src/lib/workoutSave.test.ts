@@ -2,10 +2,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { once, parseReps, parseWeight, prepareSave, saveFailure } from './workoutSave.ts';
+import { once, parseReps, parseWeight, prepareSave, saveFailure, toNumber } from './workoutSave.ts';
 
 const item = (sets: { weight: string; reps: string; rir: string; done: boolean }[]) => ({ exerciseId: 'bb_bench', name: 'Bench', sets, suggestion: { weight: 60, reps: 8 } });
 const row = (weight: string, reps: string, done = true, rir = '2') => ({ weight, reps, rir, done });
+
+test('toNumber: one decimal separator, digits only', () => {
+  assert.equal(toNumber('62,5'), 62.5);
+  assert.equal(toNumber(' 80 '), 80);
+  assert.equal(toNumber('.5'), 0.5);
+  assert.ok(Number.isNaN(toNumber('1,000')));
+  assert.ok(Number.isNaN(toNumber('0x10')));
+  assert.ok(Number.isNaN(toNumber('1e2')));
+  assert.ok(Number.isNaN(toNumber('')));
+});
 
 test('completes once required data is logged; unlogged sets are optional', () => {
   const r = prepareSave([item([row('60', '8'), row('60', '7'), row('', '8', false)])]);

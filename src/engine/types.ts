@@ -6,6 +6,8 @@ export type Unit = 'kg' | 'lb';
 // How hard working sets go. last_failure: earlier sets 1-3 reps in reserve, last set to failure (default).
 export type Effort = 'last_failure' | 'rir' | 'failure';
 export type Setup = 'commercial' | 'home';
+// muscle: one main exercise per muscle (plus a second while time allows). regions: one exercise for each region of a muscle.
+export type Coverage = 'muscle' | 'regions';
 
 export type Muscle =
   | 'chest' | 'back' | 'shoulders' | 'quads' | 'hamstrings'
@@ -51,6 +53,7 @@ export type Profile = {
   weak?: Muscle[]; // weak points: 3 sets per exercise
   strong?: Muscle[]; // strong points: 1 set per exercise
   effort?: Effort;
+  coverage?: Coverage;
 };
 
 export type PlannedExercise = {
@@ -76,6 +79,7 @@ export type Program = {
   emphasis?: { weak: Muscle[]; strong: Muscle[] }; // kept with the plan so rebuilds remember it
   version?: number; // ENGINE_VERSION that built it; older plans are rebuilt on load
   effort?: Effort;
+  coverage?: Coverage;
 };
 
 export type LoggedSet = { weight: number; reps: number; rir: number | null };

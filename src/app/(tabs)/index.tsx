@@ -15,7 +15,7 @@ import { attempt } from '@/lib/alert';
 import { daysSince, isDeload, localDate, must, recentWorkouts, startOfWeek, track, updateProfile, useData } from '@/lib/data';
 import { dayLogs, sum, type Macros, type Meal } from '@/lib/food';
 import { loadCoachNotes, type CoachNotes } from '@/lib/coach';
-import { newBests, streakWeeks, weekDots, type Best, type SetRecord } from '@/lib/stats';
+import { newBests, shortDate, streakWeeks, weekDots, type Best, type SetRecord } from '@/lib/stats';
 import { supabase } from '@/lib/supabase';
 import { Banner, Button, C, Card, Chip, IconTile, LineChart, ProgressBar, Reveal, s, Screen, Section, T, type Tone } from '@/ui';
 import { Badge, InsightCard, Why } from '@/why';
@@ -36,24 +36,26 @@ export default function Home() {
   const [tip, setTip] = useState<Topic | null>(null);
   const [meal, setMeal] = useState<Meal>('snack');
   const [coach, setCoach] = useState<CoachNotes | null>(null);
-  const [sets, setSets] = useState<{ exercise_id: string; weight: number; created_at: string; workout_id: string }[]>([]);
-  const [checkins, setCheckins] = useState<(import('@/engine/types.ts').CheckIn | null)[]>([]);
+  const [sets, setSets] = useState<{ exercise_id: string; weight: number; created_at: string; workout_id: string }[] | null>(null); // null = not loaded
+  const [stale, setStale] = useState(false); // a load failed: numbers on screen may be out of date
+  const [checkins, setCheckins] = useState<(import('@/engine/types.ts').CheckIn | null)[] | null>(null); // null = not loaded
   const userId = profile?.id;
 
-  useFocusEffect(useCallback(() => {
+  const load = useCallback(() => {
     const now = new Date();
     setTip(TOPICS[Math.floor(now.getTime() / 864e5) % TOPICS.length]); // a different topic each day
     setMeal(mealNow(now.getHours()));
     if (userId) setCoach(loadCoachNotes(userId));
     const since = (days: number) => new Date(now.getTime() - days * 864e5).toISOString();
+    setStale(false);
     (async () => {
       const w = must(await supabase.from('workouts').select('id, day_name, finished_at, logged_sets(count)')
         .not('finished_at', 'is', null).gte('finished_at', since(120)).order('finished_at', { ascending: false }));
       setDone(w as Done[]);
-      const x = must(await supabase.from('logged_sets').select('exercise_id, weight, workout_id, created_at').gte('created_at', since(90)));
+      const x = must(await supabase.from('logged_sets').select('exercise_id, weight, workout_id, created_at').gte('created_at', since(90)).order('created_at', { ascending: false }).limit(1000));
       setSets(x.map((r) => ({ ...r, weight: Number(r.weight) })));
       setBests(newBests(x.map((r) => ({ ...r, weight: Number(r.weight) })) as SetRecord[], 30, now).slice(0, 3));
-    })().catch(() => setDone([]));
+    })().catch(() => { setDone([]); setSets(null); setStale(true); });
     recentWorkouts(4).then((r) => {
       setOffer(deloadOffer(r));
       setCheckins(r.map((w) => w.checkin));
@@ -62,9 +64,10 @@ export default function Home() {
         setSurvey(shouldAskSurvey(userId, r.length > 0));
         setFounding(r.length > 0 && shouldOfferFoundingDeal(userId));
       }
-    }).catch(() => {});
-    dayLogs().then((l) => setEaten(sum(l))).catch(() => setEaten(null));
-  }, [program, userId]));
+    }).catch(() => { setCheckins(null); setStale(true); }); // readiness and deload tiles would otherwise read as "no data"
+    dayLogs().then((l) => setEaten(sum(l))).catch(() => { setEaten(null); setStale(true); });
+  }, [program, userId]);
+  useFocusEffect(load);
 
   async function acceptDeload() {
     const end = new Date();
@@ -76,7 +79,8 @@ export default function Home() {
   }
 
   if (!program || !profile) return null;
-  const day = program.plan.days[program.next_day];
+  const dayIndex = program.plan.days[program.next_day] ? program.next_day : 0;
+  const day = program.plan.days[dayIndex];
   const goal = targets({
     bodyweight: Number(profile.bodyweight), unit: profile.unit, heightCm: Number(profile.height_cm),
     age: new Date().getFullYear() - profile.birth_year, sex: profile.sex, days: profile.days, phase: profile.nutrition_phase,
@@ -94,11 +98,13 @@ export default function Home() {
   // Weekly volume: logged hard sets this week vs plan.
   const week = startOfWeek();
   const weekSets: Record<string, number> = {};
-  for (const x of sets) if (x.created_at >= week) { const m = EXERCISE_BY_ID[x.exercise_id]?.muscle; if (m) weekSets[m] = (weekSets[m] ?? 0) + 1; }
+  for (const x of sets ?? []) if (x.created_at >= week) { const m = EXERCISE_BY_ID[x.exercise_id]?.muscle; if (m) weekSets[m] = (weekSets[m] ?? 0) + 1; }
   const plannedTotal = Object.values(program.plan.weeklySets).reduce((a, b) => a + (b ?? 0), 0);
   const doneTotal = Object.values(weekSets).reduce((a, b) => a + b, 0);
 
-  const ready = readinessOf(checkins, deload);
+  // Not loaded or failed is "unknown", never "no check-in" or zero (BUG-15).
+  const ready = checkins ? readinessOf(checkins, deload)
+    : { label: stale ? 'Unknown' : 'Loading', detail: stale ? 'Could not load your check-ins' : 'Loading your check-ins', tone: 'neutral' as Tone };
   const noteRank = (k: string) => (k === 'progressing' || k === 'too_new' ? 1 : 0);
   const lead = [...(coach?.decisions ?? [])].sort((a, b) => noteRank(a.kind) - noteRank(b.kind))[0];
   const insight = lead ? insightFromDecision(lead) : null;
@@ -106,12 +112,12 @@ export default function Home() {
 
   // Progress chart: top e1RM-ish (top weight) per session for the most-trained lift.
   const counts: Record<string, Set<string>> = {};
-  for (const x of sets) (counts[x.exercise_id] ??= new Set()).add(x.workout_id);
+  for (const x of sets ?? []) (counts[x.exercise_id] ??= new Set()).add(x.workout_id);
   const topLift = Object.keys(counts).sort((a, b) => counts[b].size - counts[a].size)[0];
   const trend: number[] = [];
   if (topLift) {
     const by = new Map<string, { at: string; w: number }>();
-    for (const x of sets.filter((r) => r.exercise_id === topLift)) {
+    for (const x of (sets ?? []).filter((r) => r.exercise_id === topLift)) {
       const cur = by.get(x.workout_id);
       if (!cur || x.weight > cur.w) by.set(x.workout_id, { at: x.created_at, w: x.weight });
     }
@@ -130,7 +136,7 @@ export default function Home() {
       <IconTile name={icon} tone={tone} size={34} />
       <View style={{ gap: 2 }}>
         <T size="micro">{label}</T>
-        <T size="lg" numberOfLines={1}>{value}</T>
+        <T size="lg" numberOfLines={2}>{value}</T>
         <T muted size="sm" numberOfLines={2}>{sub}</T>
       </View>
       {extra}
@@ -148,7 +154,7 @@ export default function Home() {
       <View style={[s.row, { justifyContent: 'space-between', alignItems: 'flex-start' }]}>
         <View style={{ flex: 1, gap: 2 }}>
           <T size="sm" muted>{today}</T>
-          <T size="xl">{greeting()}{name ? `,\n${name}` : ''}</T>
+          <T size="xl" header>{greeting()}{name ? `,\n${name}` : ''}</T>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="Account" hitSlop={12} onPress={() => router.push('/profile')}
           style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: C.border, backgroundColor: C.card, alignItems: 'center', justifyContent: 'center' }}>
@@ -156,6 +162,7 @@ export default function Home() {
         </Pressable>
       </View>
 
+      {stale ? <Banner tone="danger" text="Could not refresh your data. Check your connection; some numbers may be out of date." action="Retry" onAction={load} /> : null}
       {deload ? <Banner tone="accent" text={`Deload week: half the sets, same weights, until ${profile.deload_until}.`} /> : null}
       {offer && !deload ? (
         <Card flat style={{ backgroundColor: C.warnSoft, borderColor: 'transparent' }}>
@@ -174,25 +181,25 @@ export default function Home() {
           <View style={[s.row, { gap: 8 }]}>
             {['Today', `~${dayMinutes} min`].map((t, i) => (
               <View key={t} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
-                {i ? <Ionicons name="time-outline" size={13} color="#fff" /> : null}
-                <T size="sm" bold color="#fff">{t}</T>
+                {i ? <Ionicons name="time-outline" size={13} color={C.onAccent} /> : null}
+                <T size="sm" bold color={C.onAccent}>{t}</T>
               </View>
             ))}
           </View>
           <View style={{ gap: 4 }}>
-            <T size="xl" color="#fff">{day.name}</T>
-            <T size="sm" color="#F3DCE3">{day.exercises.length} exercises · {daySets} sets · {names}</T>
+            <T size="xl" header color={C.onAccent}>{day.name}</T>
+            <T size="sm" color={C.onAccentMuted}>{day.exercises.length} exercises · {daySets} sets · {names}</T>
           </View>
           <View style={[s.row, { flexWrap: 'wrap', gap: 6 }]}>
             {dayMuscles.map((m) => (
               <View key={m} style={{ backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
-                <T size="sm" color="#fff">{MUSCLE_NAMES[m]}</T>
+                <T size="sm" color={C.onAccent}>{MUSCLE_NAMES[m]}</T>
               </View>
             ))}
           </View>
           <Button kind="light" title="Start workout" icon="play" onPress={() => router.push('/workout')} />
-          <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/workout-day/[index]', params: { index: String(program.next_day) } })} hitSlop={8} style={{ alignSelf: 'center' }}>
-            <T size="sm" bold color="#F3DCE3">Preview exercises</T>
+          <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/workout-day/[index]', params: { index: String(dayIndex) } })} style={{ alignSelf: 'center', minHeight: 48, paddingHorizontal: 12, justifyContent: 'center' }}>
+            <T size="sm" bold color={C.onAccentMuted}>Preview exercises</T>
           </Pressable>
         </Card>
       </Reveal>
@@ -200,13 +207,13 @@ export default function Home() {
       <Card onPress={() => router.push('/nutrition')}>
         <View style={[s.row, { justifyContent: 'space-between' }]}>
           <T bold>{"Today's nutrition"}</T>
-          <T size="sm" muted>{Math.round(eaten?.kcal ?? 0).toLocaleString()} of {goal.calories.toLocaleString()} kcal</T>
+          <T size="sm" muted>{eaten ? Math.round(eaten.kcal).toLocaleString() : '—'} of {goal.calories.toLocaleString()} kcal</T>
         </View>
-        <ProgressBar value={eaten?.kcal ?? 0} max={goal.calories} />
+        <ProgressBar value={eaten?.kcal ?? 0} max={goal.calories} label="Calories eaten today" />
         <View style={[s.row, { flexWrap: 'wrap', gap: 14 }]}>
-          <T size="sm" muted><T size="sm" bold>{Math.round(eaten?.protein ?? 0)}</T> / {goal.protein} g protein</T>
-          <T size="sm" muted><T size="sm" bold>{Math.round(eaten?.carbs ?? 0)}</T> g carbs</T>
-          <T size="sm" muted><T size="sm" bold>{Math.round(eaten?.fat ?? 0)}</T> g fat</T>
+          <T size="sm" muted><T size="sm" bold>{eaten ? Math.round(eaten.protein) : '—'}</T> / {goal.protein} g protein</T>
+          <T size="sm" muted><T size="sm" bold>{eaten ? Math.round(eaten.carbs) : '—'}</T> g carbs</T>
+          <T size="sm" muted><T size="sm" bold>{eaten ? Math.round(eaten.fat) : '—'}</T> g fat</T>
         </View>
       </Card>
 
@@ -215,11 +222,11 @@ export default function Home() {
           <T bold>This week</T>
           <Chip tone="pos" icon="checkmark" label={`${doneDays} of ${program.plan.days.length}`} />
         </View>
-        <View style={[s.row, { justifyContent: 'space-between' }]} accessibilityLabel={`Trained ${doneDays} days this week`}>
+        <View style={[s.row, { justifyContent: 'space-between' }]} accessible accessibilityLabel={`Trained ${doneDays} days this week`}>
           {dots.map((on, i) => (
             <View key={i} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
               backgroundColor: on ? C.accent : C.sunken, borderWidth: i === todayIndex && !on ? 2 : 0, borderColor: C.accent }}>
-              <T size="sm" bold color={on ? '#fff' : C.text2}>{DAY_LETTERS[i]}</T>
+              <T size="sm" bold color={on ? C.onAccent : C.text2}>{DAY_LETTERS[i]}</T>
             </View>
           ))}
         </View>
@@ -245,12 +252,12 @@ export default function Home() {
 
       <Section title="Your training">
         <View style={[s.row, { flexWrap: 'wrap', alignItems: 'stretch' }]}>
-          {tile('layers-outline', 'accent', 'Weekly volume', `${doneTotal} / ${plannedTotal} sets`, 'Hard sets logged this week', () => router.push('/volume'),
+          {tile('layers-outline', 'accent', 'Weekly volume', sets ? `${doneTotal} / ${plannedTotal} sets` : `— / ${plannedTotal} sets`, 'Hard sets logged this week', () => router.push('/volume'),
             <ProgressBar value={doneTotal} max={plannedTotal || 1} />)}
           {tile('trending-up-outline', 'pos', 'Progression', progressing ? (EXERCISE_BY_ID[progressing.exerciseId]?.name ?? 'On track') : 'Building baseline',
             progressing ? 'Responding well, keep going' : 'Decisions start after 3 sessions', () => router.push('/insights'))}
           {tile('pulse-outline', ready.tone, 'Readiness', ready.label, ready.detail, () => router.push('/insights'))}
-          {tile('trophy-outline', 'warn', 'Recent PRs', bests.length ? `${bests.length} new` : 'None yet', bests.length ? `${EXERCISE_BY_ID[bests[0].exerciseId]?.name} ${bests[0].weight} ${profile.unit}` : 'Your next best shows up here', () => router.push('/progress'))}
+          {tile('trophy-outline', 'warn', 'New 90-day bests', bests.length ? `${bests.length} new` : 'None yet', bests.length ? `${EXERCISE_BY_ID[bests[0].exerciseId]?.name} ${bests[0].weight} ${profile.unit}` : 'Your next best shows up here', () => router.push('/progress'))}
         </View>
       </Section>
 
@@ -278,7 +285,7 @@ export default function Home() {
                   <T muted size="sm">{profile.unit} top weight</T>
                 </View>
               </View>
-              {trend[trend.length - 1] >= trend[0] ? <Chip tone="pos" icon="arrow-up" label={`${Math.abs(trend[trend.length - 1] - trend[0])} ${profile.unit}`} /> : null}
+              {trend[trend.length - 1] >= trend[0] ? <Chip tone="pos" icon="arrow-up" label={`${Math.round(Math.abs(trend[trend.length - 1] - trend[0]) * 100) / 100} ${profile.unit}`} /> : null}
             </View>
             <LineChart values={trend} label="Top weight per session" height={120} />
           </Card>
@@ -299,7 +306,7 @@ export default function Home() {
           <T size="micro">Last workout</T>
           <View style={[s.row, { justifyContent: 'space-between' }]}>
             <T bold>{last.day_name}</T>
-            <T muted size="sm">{new Date(last.finished_at).toLocaleDateString()} · {last.logged_sets[0]?.count ?? 0} sets</T>
+            <T muted size="sm">{shortDate(last.finished_at)} · {last.logged_sets[0]?.count ?? 0} sets</T>
           </View>
         </Card>
       ) : null}

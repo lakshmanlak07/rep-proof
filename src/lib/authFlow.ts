@@ -27,9 +27,26 @@ export const SENT_MESSAGE = 'If an account uses that email, we have sent it a co
 export function emailRequestOutcome(error: AuthErr): { sent: boolean; message: string } {
   if (!error) return { sent: true, message: SENT_MESSAGE };
   const m = `${error.code ?? ''} ${error.message ?? ''}`;
-  if (error.status === 429 || /rate|captcha|only request this after/i.test(m) || /email_address_invalid|invalid.*email/i.test(m)) {
+  // Email-sending limits (the 60 s per-address cooldown, the project email quota) are only checked when the
+  // address HAS an account; an unknown address gets a plain 200. Showing them would reveal which emails are
+  // registered (a second request within 60 s answers "yes"), so they read as sent like everything else.
+  // The app's own 60 s resend countdown already stops honest double requests.
+  if (/over_email_send_rate_limit|only request this after|email rate limit/i.test(m)) return { sent: true, message: SENT_MESSAGE };
+  if (error.status === 429 || /rate|captcha/i.test(m) || /email_address_invalid|invalid.*email/i.test(m)) {
     return { sent: false, message: friendlyAuthError(error) };
   }
   if (!error.status) return { sent: false, message: 'Check your connection and try again.' }; // network failure: nothing was sent
   return { sent: true, message: SENT_MESSAGE };
+}
+
+/**
+ * Whether the server has definitively rejected the stored session (account deleted, banned, or token
+ * revoked), as opposed to a temporary failure. Only a definite rejection signs the device out: a network
+ * error or server hiccup must never log someone out or send them back to onboarding.
+ */
+export function sessionRejected(error: AuthErr): boolean {
+  if (!error) return false;
+  const m = `${error.code ?? ''} ${error.message ?? ''}`;
+  // Specific codes only: a bare 401/403 can come from a proxy or gateway hiccup, and signing out wipes the unsaved workout.
+  return /user_not_found|user_banned|session_not_found|bad_jwt|refresh_token_not_found|user from sub claim in JWT does not exist/i.test(m);
 }

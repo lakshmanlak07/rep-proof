@@ -39,8 +39,9 @@ export function RefLinks({ ids }: { ids: string[] }) {
     <View style={{ gap: 8 }}>
       {ids.map((id) => {
         const r = REFERENCES[id];
+        if (!r) return null; // never render (or crash on) a citation that is not in the checked reference list
         return (
-          <Pressable key={id} accessibilityRole="link" onPress={() => { WebBrowser.openBrowserAsync(`https://doi.org/${r.doi}`); track('study_opened', { id }); }}>
+          <Pressable key={id} accessibilityRole="link" hitSlop={6} style={{ minHeight: 48, justifyContent: 'center' }} onPress={() => { WebBrowser.openBrowserAsync(`https://doi.org/${r.doi}`); track('study_opened', { id }); }}>
             <T size="sm" bold color={C.accent}>{r.citation} · Open study</T>
             <T size="sm" muted>{r.type} · {r.population}</T>
           </Pressable>
@@ -59,7 +60,7 @@ export function Why({ e, changed }: { e: Explanation; changed?: boolean }) {
       <Pressable accessibilityRole="button" accessibilityLabel="Why?" hitSlop={12}
         onPress={() => { setOpen(true); track('why_opened', { label: e.label }); }}
         style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, height: 28, borderRadius: 14, backgroundColor: changed ? C.accentSoft : C.sunken }}>
-        <Ionicons name="sparkles" size={13} color={changed ? C.accent : C.muted} />
+        <Ionicons name="information-circle-outline" size={14} color={changed ? C.accent : C.muted} />
         <T size="sm" bold color={changed ? C.accent : C.muted}>Why</T>
       </Pressable>
       <Sheet visible={open} onClose={() => setOpen(false)} title="Why this recommendation?">
@@ -99,7 +100,7 @@ export function InsightCard({ kicker, icon = 'bulb', tone = 'accent', see, why, 
       {row('Why it matters', why)}
       <View style={{ backgroundColor: C.accentSoft, borderRadius: 14, padding: 14 }}>{row('What to do', todo, true)}</View>
       {refIds?.length ? (
-        <Pressable accessibilityRole="button" onPress={() => setOpen(!open)} hitSlop={8}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} hitSlop={14}>
           <T size="sm" bold color={C.accent}>{open ? 'Hide studies' : 'See the evidence'}</T>
         </Pressable>
       ) : null}

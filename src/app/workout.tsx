@@ -2,8 +2,9 @@ import 'expo-sqlite/localStorage/install';
 
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Pressable, ScrollView, View } from 'react-native';
+import { AccessibilityInfo, Pressable, ScrollView, View } from 'react-native';
 
+import { RPE_OPTIONS, RPE_WHY, rirFromRpe, rpeFromRir, targetLabel, type EffortScale } from '@/engine/effort.ts';
 import { available, EXERCISE_BY_ID, substitutes } from '@/engine/exercises.ts';
 import { applySetChange, decide, programAdvice, type Decision } from '@/engine/decisions.ts';
 import { effortTargets, MUSCLE_NAMES, MUSCLES, repRange, REST_WHY, weeklySetsOf } from '@/engine/plan.ts';
@@ -14,14 +15,19 @@ import { saveCoachNotes } from '@/lib/coach';
 import {
   bestWeight, daysSince, history, isDeload, recentWorkouts, saveProgram, saveWorkout, toProfile, track, updatePlan, updateProfile, useData, uuid,
 } from '@/lib/data';
-import { Button, C, Card, Chip, Choice, IconButton, IconTile, Loading, Press, ProgressBar, Reveal, s, Screen, Section, Sheet, Stepper, T } from '@/ui';
+import { Banner, Button, C, Card, Chip, Choice, IconButton, IconTile, Loading, Press, ProgressBar, Reveal, s, Screen, Section, Sheet, Stepper, T } from '@/ui';
 import { alert, attempt } from '@/lib/alert';
 import { Badge, Why } from '@/why';
 import { isUsableDraft } from '@/lib/draft';
-import { once, prepareSave, rowProblem, saveFailure } from '@/lib/workoutSave';
+import { reportError } from '@/lib/crash';
+import { once, prepareSave, rowProblem, saveFailure, toNumber } from '@/lib/workoutSave';
 import { leave } from '@/lib/nav';
+import { cancelRestAlert, scheduleRestAlert } from '@/lib/notify';
+import { effortScale } from '@/lib/prefs';
+import { canCalibrate } from '@/engine/calibration.ts';
+import { CalibrationCard } from '@/calibration';
 
-type Row = { weight: string; reps: string; rir: string; done: boolean };
+type Row = { weight: string; reps: string; rir: string; done: boolean; rpe?: string };
 type Item = {
   planned: PlannedExercise;
   added?: boolean; // logged during the workout, not part of the plan
@@ -42,6 +48,7 @@ type Summary = {
   cooldown: string[];
   deload: boolean;
   advice: Explanation | null;
+  planFailed: boolean; // the workout saved, but the plan changes (sets, decisions) could not be stored
 };
 
 const KEY = 'draft_workout';
@@ -63,10 +70,10 @@ const REST = { compound: 150, isolation: 90 }; // seconds; PRD defaults
 const restUntil = (compound: boolean) => Date.now() + 1000 * (compound ? REST.compound : REST.isolation);
 const clock = () => Date.now();
 /** One calm line after each set; never gamified. */
-function feedbackFor(rir: string, target: number, reps: string, repMax: number) {
+function feedbackFor(rir: string, target: number, reps: string, repMax: number, rpe?: string) {
   const r = rir === '' ? null : Number(rir);
   if (r === null) return 'Logged.';
-  const base = r === 0 ? 'Great. That was to failure.' : `Great. That was approximately ${r} RIR.`;
+  const base = r === 0 ? 'Great. That was to failure.' : rpe ? `Great. That was about RPE ${rpe}.` : `Great. That was approximately ${r} RIR.`;
   if (Number(reps) >= repMax && r <= target) return `${base} Top of the range.`;
   if (r > target + 1) return `${base} You had more in the tank, so feel free to push harder next set.`;
   return base;
@@ -80,12 +87,18 @@ export default function Workout() {
     if (!d || d.userId !== session?.user.id) return null;
     if (isUsableDraft(d, session?.user.id, program?.plan.days.length ?? 14, (id) => !!EXERCISE_BY_ID[id])) return d;
     localStorage.removeItem(KEY); // unreadable (older version, renamed exercise): discard, never crash on it
+    setTimeout(() => alert('Unfinished workout not restored', 'It was saved by an older version of the app and could not be read. Workouts you finished are not affected.'), 0);
     return null;
   });
   const finishing = useRef(false);
   const [saveError, setSaveError] = useState<{ message: string; retry: boolean } | null>(null);
+  // The failure card appears below the Finish button, often off screen: say it.
+  useEffect(() => {
+    if (saveError) AccessibilityInfo.announceForAccessibility(`${saveError.retry ? 'Not saved yet' : 'Fix before finishing'}. ${saveError.message}`);
+  }, [saveError]);
   const [checkin, setCheckin] = useState<CheckIn>({ sleep: 3, soreness: 3, energy: 3 });
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false); // saved on the server; next steps still being worked out
   const [restEnd, setRestEnd] = useState<number | null>(null);
   const [swapFor, setSwapFor] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
@@ -97,6 +110,7 @@ export default function Workout() {
   const [cur, setCur] = useState(0); // exercise on screen
   const [fb, setFb] = useState<string | null>(null); // feedback after logging a set
   const [cues, setCues] = useState(false);
+  const [scale] = useState<EffortScale>(effortScale);
 
   useEffect(() => {
     if (draft || !program) return;
@@ -125,6 +139,7 @@ export default function Workout() {
       sets: Array.from({ length: sug.sets }, (_, k) => ({
         weight: sug.weight === null ? (isBodyweight(exerciseId) ? '0' : '') : String(sug.weight), reps: String(sug.reps),
         rir: String(k === sug.sets - 1 ? planned.lastSetRir ?? planned.rirTarget : planned.rirTarget), done: false,
+        rpe: scale === 'rpe' ? String(rpeFromRir(k === sug.sets - 1 ? planned.lastSetRir ?? planned.rirTarget : planned.rirTarget)) : '',
       })),
     };
   }
@@ -163,8 +178,12 @@ export default function Workout() {
       }),
     }));
     if (!it.sets[j].done) {
-      setRestEnd(restUntil(EXERCISE_BY_ID[it.exerciseId].compound));
-      setFb(feedbackFor(it.sets[j].rir, it.planned.rirTarget, it.sets[j].reps, it.planned.repMax));
+      const compound = EXERCISE_BY_ID[it.exerciseId].compound;
+      setRestEnd(restUntil(compound));
+      scheduleRestAlert(compound ? REST.compound : REST.isolation, EXERCISE_BY_ID[it.exerciseId].name);
+      const said = feedbackFor(it.sets[j].rir, it.planned.rirTarget, it.sets[j].reps, it.planned.repMax, scale === 'rpe' ? it.sets[j].rpe : undefined);
+      setFb(said);
+      AccessibilityInfo.announceForAccessibility(`Set ${j + 1} logged. ${said} Rest started.`);
     } else setFb(null);
   }
 
@@ -178,6 +197,9 @@ export default function Workout() {
   // A suggested swap is the user's call: replace the exercise everywhere in the plan.
   async function swapPlanned(fromId: string, toId: string) {
     if (!program) return;
+    if (!program.plan.days.some((d) => d.exercises.some((e) => e.exerciseId === fromId))) {
+      return alert('Not in your plan', 'You swapped this lift in for today only, so there is nothing to replace in your plan.');
+    }
     const days = program.plan.days.map((day) => ({
       ...day, exercises: day.exercises.map((e) => (e.exerciseId === fromId ? { ...e, exerciseId: toId } : e)),
     }));
@@ -185,6 +207,7 @@ export default function Workout() {
     if (!ok) return;
     track('swap_in_plan', { from: fromId, to: toId });
     setSwapped((x) => [...x, fromId]);
+    await refresh(); // the next plan change must build on this one, not on the copy loaded before it
   }
 
   // Any lift, not just the plan's: 2 working sets, tracked and progressed like planned ones.
@@ -204,14 +227,21 @@ export default function Workout() {
     }
   }
 
+  // Alternatives not already in today's workout (two items with one exercise would share every logged set).
+  const swapOptions = (i: number) => substitutes(draft!.items[i].exerciseId, profile!.setup, profile!.avoid, draft!.items.map((x) => x.exerciseId));
+
   async function swap(i: number, exerciseId: string) {
     setSwapFor(null);
     if (!draft) return;
     const it = draft.items[i];
-    track('swap', { from: it.exerciseId, to: exerciseId });
     const badDay = !!draft.checkin && isBadDay(draft.checkin);
-    const next = await buildItem(it.planned, exerciseId, badDay);
-    update(i, () => next);
+    try {
+      const next = await buildItem(it.planned, exerciseId, badDay);
+      update(i, (x) => ({ ...next, added: x.added }));
+      track('swap', { from: it.exerciseId, to: exerciseId });
+    } catch {
+      alert('Could not swap that exercise', 'Check your connection and try again.');
+    }
   }
 
   function pain(i: number) {
@@ -224,10 +254,24 @@ export default function Workout() {
           const avoid = [...new Set([...profile!.avoid, ex.pattern])];
           const saved = await attempt(async () => {
             await updateProfile(profile!.id, { avoid });
-            await saveProgram(toProfile({ ...profile!, avoid }, program!.plan), program!.split, program!.next_day);
+            // Profile and plan must agree: if the rebuild fails, undo the profile change before reporting the failure.
+            try {
+              await saveProgram(toProfile({ ...profile!, avoid }, program!.plan), program!.split, program!.next_day);
+            } catch (e) {
+              await updateProfile(profile!.id, { avoid: profile!.avoid }).catch((err) => reportError(err, 'profile_revert'));
+              throw e;
+            }
           }, 'update your plan');
           if (!saved) return;
+          if (draft.items.length === 1) {
+            cancelRestAlert();
+            localStorage.removeItem(KEY);
+            setDraft(null);
+            leave();
+            return refresh();
+          }
           setDraft((d) => d && { ...d, items: d.items.filter((_, k) => k !== i) });
+          setCur((c) => Math.max(0, Math.min(c, draft.items.length - 2)));
           await refresh(); // new active program; finish() updates its next_day
         },
       },
@@ -274,41 +318,52 @@ export default function Workout() {
       return setSaveError({ message: saveFailure(e), retry: true });
     }
     localStorage.removeItem(KEY);
+    cancelRestAlert();
     setDraft(null); // saved: drop it from state too, or a later effect run would write it back
+    setSaved(true); // show "saved" while next steps are worked out, never the empty check-in screen
+    await refresh(); // the server moved next_day; Home and Plan must not offer the day just trained again
 
     // Interpret -> Adjust: decide per planned lift, apply set changes to the plan (not during a deload).
     let advice: Explanation | null = null;
+    let planFailed = false;
     try {
       const checkins = (await recentWorkouts(3)).map((r) => r.checkin);
       const decisions: Decision[] = [];
       for (const it of d.items) {
         const done = sets.filter((x) => x.exerciseId === it.exerciseId);
         if (!done.length || it.added) continue;
-        const sub = substitutes(it.exerciseId, profile!.setup, profile!.avoid)[0];
-        const decision = decide({ plan: it.planned, sessions: [done, ...it.history], checkins, swapTo: sub ? { id: sub.id, name: sub.name } : null });
+        const inDay = new Set<string>(day.exercises.map((e) => String(e.exerciseId)));
+        const sub = substitutes(it.exerciseId, profile!.setup, profile!.avoid).find((e) => !inDay.has(e.id)); // never one already in this plan day
+        // Swapped for the day: judge the lift actually trained. Its set changes then match nothing in the plan
+        // (the plan still holds the original lift), so the original is never changed by another lift's sessions.
+        const decision = decide({ plan: { ...it.planned, exerciseId: it.exerciseId }, sessions: [done, ...it.history], checkins, swapTo: sub ? { id: sub.id, name: sub.name } : null });
         decisions.push(decision);
         const entry = next.find((x) => x.exerciseId === it.exerciseId);
         if (entry) entry.decision = decision;
       }
       if (!deload) {
         advice = programAdvice(decisions);
+        saveCoachNotes(session!.user.id, decisions, advice); // phone-only advice: kept even if the plan write fails
         const deltas = new Map(decisions.filter((x) => x.setsDelta).map((x) => [x.exerciseId, x.setsDelta]));
         if (deltas.size) {
           const days = program!.plan.days.map((day) => ({
             ...day, exercises: day.exercises.map((e) => applySetChange(e, deltas.get(e.exerciseId) ?? 0)),
           }));
           await updatePlan(program!.id, { ...program!.plan, days, weeklySets: weeklySetsOf(days) });
+          await refresh(); // a "Swap in plan" on the summary must build on these set changes
         }
-        saveCoachNotes(session!.user.id, decisions, advice);
       }
-    } catch {
-      // decisions are advice; the workout itself is already saved
+    } catch (e) {
+      // The workout itself is saved. Say so honestly instead of showing plan changes that were not stored.
+      void reportError(e, 'workout_plan_update');
+      planFailed = true;
     }
     setBusy(false);
     const trained = d.items.filter((it) => it.sets.some((r) => r.done)).map((it) => EXERCISE_BY_ID[it.exerciseId].muscle);
     const minutes = Math.max(1, Math.round((clock() - Date.parse(d.startedAt)) / 60000));
     const volume = sets.reduce((a, x) => a + x.weight * x.reps, 0);
-    setSummary({ sets: sets.length, minutes, volume, prs, next, cooldown: cooldown(trained), deload, advice });
+    setSummary({ sets: sets.length, minutes, volume, prs, next, cooldown: cooldown(trained), deload, advice, planFailed });
+    setSaved(false);
   }
 
   function confirmFinish() {
@@ -325,7 +380,7 @@ export default function Workout() {
   function quit() {
     alert('Discard this workout?', 'Nothing from this session will be saved.', [
       { text: 'Keep going', style: 'cancel' },
-      { text: 'Discard', style: 'destructive', onPress: () => { localStorage.removeItem(KEY); setDraft(null); leave(); } },
+      { text: 'Discard', style: 'destructive', onPress: () => { cancelRestAlert(); localStorage.removeItem(KEY); setDraft(null); leave(); } },
     ]);
   }
 
@@ -336,12 +391,12 @@ export default function Workout() {
         <Reveal>
           <View style={{ gap: 10, paddingTop: 12 }}>
             <IconTile name="checkmark" tone="pos" size={48} />
-            <T size="xl">Workout saved.</T>
+            <T size="xl" header>Workout saved.</T>
             <T muted>{summary.prs.length ? 'Solid session. Here is how it went.' : 'Nice work. Here is how it went.'}</T>
           </View>
         </Reveal>
         <View style={[s.row, { alignItems: 'stretch' }]}>
-          {[[`${summary.minutes}m`, 'duration'], [String(summary.sets), 'sets'], [summary.volume >= 1000 ? `${(summary.volume / 1000).toFixed(1)}t` : String(Math.round(summary.volume)), `${unit} volume`]].map(([v, l]) => (
+          {[[`${summary.minutes}m`, 'duration'], [String(summary.sets), 'sets'], [summary.volume >= 1000 ? `${(summary.volume / 1000).toFixed(1)}${unit === 'kg' ? 't' : 'k'}` : String(Math.round(summary.volume)), unit === 'kg' && summary.volume >= 1000 ? 'volume' : `${unit} volume`]].map(([v, l]) => (
             <Card key={l} flat style={{ flex: 1, alignItems: 'center', gap: 2, padding: 14 }}>
               <T size="lg">{v}</T>
               <T size="sm" muted>{l}</T>
@@ -360,6 +415,7 @@ export default function Workout() {
           </Card>
         ) : null}
         <Section title="What changes next time">
+          {summary.planFailed ? <Banner tone="warn" text="Your workout is saved, but your plan could not be updated (check your connection). These changes will be suggested again after your next session." /> : null}
           {summary.deload ? <T muted size="sm">Deload week: sets and exercises stay as planned; decisions resume after it.</T> : null}
           {summary.next.map((n) => (
             <Card key={n.exerciseId}>
@@ -395,7 +451,7 @@ export default function Workout() {
                 <Press key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }}
                   onPress={() => setStretched(on ? stretched.filter((x) => x !== c) : [...stretched, c])}
                   style={[s.choice, on && { borderColor: C.accent, backgroundColor: C.accentSoft }]}>
-                  <Ionicons name={on ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={on ? C.accent : C.faint} />
+                  <Ionicons name={on ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={on ? C.accent : C.control} />
                   <T style={{ flex: 1 }}>{c}</T>
                 </Press>
               );
@@ -407,18 +463,30 @@ export default function Workout() {
     );
   }
 
+  if (saved) {
+    return (
+      <Screen scroll={false}>
+        <View style={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: 12 }} accessibilityLiveRegion="polite">
+          <IconTile name="checkmark" tone="pos" size={48} />
+          <T size="xl" header>Workout saved.</T>
+          <T muted>Working out what changes next time…</T>
+        </View>
+      </Screen>
+    );
+  }
+
   if (!draft) {
     const scale = (k: keyof CheckIn, title: string, low: string, high: string) => (
       <View style={{ gap: 8 }}>
         <T bold>{title}</T>
-        <View style={s.row}>
+        <View style={s.row} accessibilityRole="radiogroup">
           {[1, 2, 3, 4, 5].map((v) => {
             const on = checkin[k] === v;
             return (
-              <Press key={v} accessibilityRole="radio" accessibilityLabel={`${title} ${v}`} accessibilityState={{ selected: on }} onPress={() => setCheckin({ ...checkin, [k]: v })} scaleTo={0.94}
+              <Press key={v} accessibilityRole="radio" accessibilityLabel={`${title} ${v}${v === 1 ? `, ${low}` : v === 5 ? `, ${high}` : ''}`} accessibilityState={{ checked: on }} onPress={() => setCheckin({ ...checkin, [k]: v })} scaleTo={0.94}
                 style={{ flex: 1, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
                   backgroundColor: on ? C.accent : C.card, borderColor: on ? C.accent : C.border }}>
-                <T bold color={on ? '#fff' : C.text}>{v}</T>
+                <T bold color={on ? C.onAccent : C.text}>{v}</T>
               </Press>
             );
           })}
@@ -434,7 +502,7 @@ export default function Workout() {
         </View>
         <View style={{ gap: 6 }}>
           <Chip tone="accent" label={day.name} />
-          <T size="xl">Quick check-in</T>
+          <T size="xl" header>Quick check-in</T>
           <T muted>Takes 10 seconds. If you are run down, RepProof adjusts today for you.</T>
         </View>
         {missed ? (
@@ -467,10 +535,13 @@ export default function Workout() {
   const step = unit === 'kg' ? 2.5 : 5;
   const w = it.suggestion.weight;
   const patch = (f: 'weight' | 'reps' | 'rir', v: string) => update(i, (x) => ({ ...x, sets: x.sets.map((y, k) => (k === j ? { ...y, [f]: v } : y)) }));
-  const doneSets: LoggedSet[] = it.sets.filter((r) => r.done).map((r) => ({ weight: Number(r.weight) || 0, reps: Number(r.reps) || 0, rir: r.rir === '' ? null : Number(r.rir) }));
+  // An RPE entry also sets the reps in reserve the engine uses (half steps round toward failure).
+  const patchRpe = (v: number) => update(i, (x) => ({ ...x, sets: x.sets.map((y, k) => (k === j ? { ...y, rpe: String(v), rir: String(rirFromRpe(v)) } : y)) }));
+  // toNumber: "62,5" from comma keyboards is 62.5, not 0 (which made the on-screen next-session advice wrong).
+  const doneSets: LoggedSet[] = it.sets.filter((r) => r.done).map((r) => ({ weight: toNumber(r.weight) || 0, reps: toNumber(r.reps) || 0, rir: r.rir === '' ? null : toNumber(r.rir) }));
   const rec = j === -1 && doneSets.length ? applyPins(suggest(it.planned, [doneSets, ...it.history], profile.experience, unit), it.planned) : null;
   const nextRow = j >= 0 && restEnd ? it.sets[j] : null;
-  const goto = (k: number) => { setCur(k); setFb(null); setRestEnd(null); setCues(false); };
+  const goto = (k: number) => { setCur(k); setFb(null); setRestEnd(null); cancelRestAlert(); setCues(false); };
   const rirTarget = j >= 0 ? (j === it.sets.length - 1 ? it.planned.lastSetRir ?? it.planned.rirTarget : it.planned.rirTarget) : it.planned.rirTarget;
 
   return (
@@ -479,7 +550,7 @@ export default function Workout() {
         <IconButton icon="close" label="Discard workout" onPress={quit} />
         <View style={{ flex: 1, gap: 6, paddingHorizontal: 6 }}>
           <T size="sm" muted style={{ textAlign: 'center' }}>{day.name} · exercise {i + 1} of {draft.items.length} · {logged}/{total} sets</T>
-          <ProgressBar value={logged} max={total} />
+          <ProgressBar value={logged} max={total} label="Sets logged" />
         </View>
         <IconButton icon="add" label="Add an exercise" onPress={() => setAdding(true)} />
       </View>
@@ -490,9 +561,10 @@ export default function Workout() {
           const on = k === i;
           return (
             <Pressable key={`${k}-${x.exerciseId}`} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => goto(k)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: on ? C.accent : C.card, borderWidth: 1, borderColor: on ? C.accent : C.border }}>
-              {all ? <Ionicons name="checkmark-circle" size={14} color={on ? '#fff' : C.pos} /> : null}
-              <T size="sm" bold color={on ? '#fff' : C.text}>{k + 1}. {EXERCISE_BY_ID[x.exerciseId].name.split(' ').slice(0, 2).join(' ')}</T>
+              accessibilityLabel={`Exercise ${k + 1}: ${EXERCISE_BY_ID[x.exerciseId].name}${all ? ', done' : ''}`}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 48, paddingHorizontal: 14, borderRadius: 18, backgroundColor: on ? C.accent : C.card, borderWidth: 1, borderColor: on ? C.accent : C.border }}>
+              {all ? <Ionicons name="checkmark-circle" size={14} color={on ? C.onAccent : C.pos} /> : null}
+              <T size="sm" bold color={on ? C.onAccent : C.text}>{k + 1}. {EXERCISE_BY_ID[x.exerciseId].name.split(' ').slice(0, 2).join(' ')}</T>
             </Pressable>
           );
         })}
@@ -502,7 +574,7 @@ export default function Workout() {
         <View style={{ gap: 10 }}>
           <View style={{ gap: 2 }}>
             <T size="sm" muted>{ex.muscle} · {ex.compound ? 'compound' : 'isolation'}</T>
-            <T size="xl">{ex.name}</T>
+            <T size="xl" header>{ex.name}</T>
           </View>
           <Card variant="tint" style={{ gap: 8 }}>
             <View style={[s.row, { justifyContent: 'space-between' }]}>
@@ -513,7 +585,7 @@ export default function Workout() {
               <T size="lg">
                 {w === null ? (isBodyweight(it.exerciseId) ? 'Bodyweight' : 'Pick your weight') : `${w} ${unit}`} × {it.planned.pinnedReps !== undefined ? `${it.planned.pinnedReps}` : `${it.suggestion.reps}–${it.planned.repMax}`}
               </T>
-              <Chip tone="accent" label={`${it.planned.rirTarget} RIR`} />
+              <Chip tone="accent" label={targetLabel(it.planned.rirTarget, scale)} />
             </View>
             <T muted size="sm">
               {w === null ? (isBodyweight(it.exerciseId) ? 'Log added weight (0 if none). ' : 'Calibrate: pick a starting weight. ') : ''}{effortLabel(it.planned)}{it.planned.pinnedReps !== undefined ? ' · reps pinned' : ''}
@@ -526,19 +598,19 @@ export default function Workout() {
       {it.sets.some((r) => r.done) ? (
         <Card flat style={{ gap: 8 }}>
           <View style={s.row}>
-            {['Set', unit, 'Reps', 'RIR', ''].map((h, k) => <T key={k} size="sm" muted style={{ flex: k === 0 ? 0.6 : k === 4 ? 0.7 : 1, textAlign: 'center' }}>{h}</T>)}
+            {['Set', unit, 'Reps', scale === 'rpe' ? 'RPE' : 'RIR', ''].map((h, k) => <T key={k} size="sm" muted style={{ flex: k === 0 ? 0.6 : k === 4 ? 0.7 : 1, textAlign: 'center' }}>{h}</T>)}
           </View>
           {it.sets.map((r, k) => r.done ? (
             <Pressable key={k} accessibilityRole="button" accessibilityLabel={`Set ${k + 1} logged: ${r.weight} ${unit} × ${r.reps}. Tap to edit`} onPress={() => logSet(i, k)} style={s.row}>
               <T bold style={{ flex: 0.6, textAlign: 'center' }}>{k + 1}</T>
-              {[r.weight, r.reps, r.rir === '' ? '–' : r.rir].map((v, n) => (
+              {[r.weight, r.reps, scale === 'rpe' && r.rpe ? r.rpe : r.rir === '' ? '–' : r.rir].map((v, n) => (
                 <View key={n} style={{ flex: 1, minHeight: 44, borderRadius: 12, backgroundColor: C.sunken, alignItems: 'center', justifyContent: 'center' }}>
                   <T bold>{v}</T>
                 </View>
               ))}
               <View style={{ flex: 0.7, alignItems: 'center' }}>
                 <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
-                  <Ionicons name="checkmark" size={18} color="#fff" />
+                  <Ionicons name="checkmark" size={18} color={C.onAccent} />
                 </View>
               </View>
             </Pressable>
@@ -548,23 +620,47 @@ export default function Workout() {
       ) : null}
 
       {/* Rest timer */}
-      {restEnd ? <RestPanel end={restEnd} total={ex.compound ? REST.compound : REST.isolation} onAdjust={(sec) => setRestEnd(restEnd + sec * 1000)} onDone={() => setRestEnd(null)} next={nextRow ? `${nextRow.weight} ${unit} × ${it.suggestion.reps}–${it.planned.repMax}` : null} rir={rirTarget} /> : null}
+      {restEnd ? <RestPanel end={restEnd} total={ex.compound ? REST.compound : REST.isolation} scale={scale}
+        onAdjust={(sec) => { const end = restEnd + sec * 1000; setRestEnd(end); scheduleRestAlert((end - clock()) / 1000, ex.name); }}
+        onDone={() => { setRestEnd(null); cancelRestAlert(); }} next={nextRow ? `${nextRow.weight} ${unit} × ${it.suggestion.reps}–${it.planned.repMax}` : null} rir={rirTarget} /> : null}
 
       {/* Active set */}
       {setRow ? (
         <Card style={{ gap: 18 }}>
           <View style={[s.row, { justifyContent: 'space-between' }]}>
             <T size="micro">Set {j + 1} of {it.sets.length}</T>
-            <T muted size="sm">Target {rirTarget} RIR</T>
+            <T muted size="sm">Target {targetLabel(rirTarget, scale)}</T>
           </View>
           <View style={{ gap: 4 }}>
-            <Stepper big value={setRow.weight} onChange={(v) => patch('weight', v)} step={step} unit={unit} />
+            <Stepper big label="Weight" value={setRow.weight} onChange={(v) => patch('weight', v)} step={step} unit={unit} />
           </View>
           <View style={{ height: 1, backgroundColor: C.border }} />
           <View style={{ gap: 8 }}>
             <T bold>Reps</T>
-            <Stepper value={setRow.reps} onChange={(v) => patch('reps', v)} step={1} min={1} />
+            <Stepper label="Reps" value={setRow.reps} onChange={(v) => patch('reps', v)} step={1} min={1} />
           </View>
+          {scale === 'rpe' ? (
+            <View style={{ gap: 8 }}>
+              <View style={[s.row, { justifyContent: 'space-between' }]}>
+                <T bold>Effort (RPE)</T>
+                <Why e={RPE_WHY} />
+              </View>
+              <T muted size="sm">10 = no reps left, 9 = one left, 8 = two left. 6 means four or more.</T>
+              {[RPE_OPTIONS.slice(0, 5), RPE_OPTIONS.slice(5)].map((row, n) => (
+                <View key={n} style={s.row}>
+                  {row.map((v) => {
+                    const on = setRow.rpe === String(v);
+                    return (
+                      <Press key={v} accessibilityRole="radio" accessibilityLabel={`RPE ${v}${v === 6 ? ', four or more reps in reserve' : `, about ${rirFromRpe(v)} reps in reserve`}`} accessibilityState={{ checked: on }} onPress={() => patchRpe(v)} scaleTo={0.94}
+                        style={{ flex: 1, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, backgroundColor: on ? C.accent : C.card, borderColor: on ? C.accent : C.border }}>
+                        <T bold color={on ? C.onAccent : C.text}>{v === 6 ? '≤6' : v}</T>
+                      </Press>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          ) : (
           <View style={{ gap: 8 }}>
             <View style={[s.row, { justifyContent: 'space-between' }]}>
               <T bold>Reps in reserve (RIR)</T>
@@ -574,14 +670,15 @@ export default function Workout() {
               {['0', '1', '2', '3', '4'].map((v) => {
                 const on = setRow.rir === v;
                 return (
-                  <Press key={v} accessibilityRole="radio" accessibilityLabel={`${v === '4' ? '4 or more' : v} reps in reserve`} accessibilityState={{ selected: on }} onPress={() => patch('rir', v)} scaleTo={0.94}
+                  <Press key={v} accessibilityRole="radio" accessibilityLabel={`${v === '4' ? '4 or more' : v} reps in reserve`} accessibilityState={{ checked: on }} onPress={() => patch('rir', v)} scaleTo={0.94}
                     style={{ flex: 1, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, backgroundColor: on ? C.accent : C.card, borderColor: on ? C.accent : C.border }}>
-                    <T bold color={on ? '#fff' : C.text}>{v === '4' ? '4+' : v}</T>
+                    <T bold color={on ? C.onAccent : C.text}>{v === '4' ? '4+' : v}</T>
                   </Press>
                 );
               })}
             </View>
           </View>
+          )}
           {fb ? <T size="sm" bold color={C.pos}>{fb}</T> : null}
           <Button kind="primary" title={`Log set ${j + 1}`} icon="checkmark" disabled={!setRow.weight || !setRow.reps} onPress={() => logSet(i, j)} />
           {w === null && j === 0 ? <T muted size="sm">First time: warm up with 1 light set of 5, then pick a weight that leaves you the target reps in reserve.</T> : null}
@@ -608,6 +705,9 @@ export default function Workout() {
         </Reveal>
       ) : null}
 
+      {/* E-02: optional RIR rep-out, isolation exercises only, after the exercise is complete */}
+      {j === -1 && canCalibrate(ex) && session ? <CalibrationCard userId={session.user.id} exerciseId={ex.id} name={ex.name} /> : null}
+
       {/* Warm-up, cues, tools */}
       <Card flat>
         <View style={[s.row, { justifyContent: 'space-between' }]}>
@@ -616,7 +716,7 @@ export default function Workout() {
           </T>
           <Why e={WARMUP_WHY} />
         </View>
-        <Pressable accessibilityRole="button" onPress={() => setCues(!cues)} style={[s.row, { justifyContent: 'space-between' }]}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: cues }} onPress={() => setCues(!cues)} style={[s.row, { justifyContent: 'space-between', minHeight: 48 }]}>
           <T bold size="sm">Key cues</T>
           <Ionicons name={cues ? 'chevron-up' : 'chevron-down'} size={18} color={C.muted} />
         </Pressable>
@@ -624,8 +724,9 @@ export default function Workout() {
         <View style={s.row}>
           <Button title="Swap" icon="swap-horizontal" size="sm" style={{ flex: 1 }} onPress={() => setSwapFor(i)} />
           <Button title="Pain stop" icon="alert-circle-outline" size="sm" style={{ flex: 1 }} onPress={() => pain(i)} />
-          <IconButton icon="arrow-up" label="Move up" onPress={() => { move(i, -1); if (i > 0) setCur(i - 1); }} />
-          <IconButton icon="arrow-down" label="Move down" onPress={() => { move(i, 1); if (i < draft.items.length - 1) setCur(i + 1); }} />
+
+          <IconButton icon="arrow-up" label={`Move ${ex.name} up`} onPress={() => { move(i, -1); if (i > 0) setCur(i - 1); }} />
+          <IconButton icon="arrow-down" label={`Move ${ex.name} down`} onPress={() => { move(i, 1); if (i < draft.items.length - 1) setCur(i + 1); }} />
         </View>
       </Card>
 
@@ -649,7 +750,7 @@ export default function Workout() {
       <Sheet visible={adding} onClose={() => setAdding(false)} title="Add an exercise">
         <T muted size="sm">Logged and tracked like the rest of your plan.</T>
         {adding ? (
-          <ScrollView style={{ maxHeight: 420 }}>
+          <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
             {MUSCLES.map((m) => {
               const options = available(profile.setup, profile.avoid).filter((e) => e.muscle === m && !draft.items.some((x) => x.exerciseId === e.id));
               if (!options.length) return null;
@@ -666,17 +767,17 @@ export default function Workout() {
       </Sheet>
 
       <Sheet visible={swapFor !== null} onClose={() => setSwapFor(null)} title="Swap for">
-        {swapFor !== null ? substitutes(draft.items[swapFor].exerciseId, profile.setup, profile.avoid).map((e) => (
+        {swapFor !== null ? swapOptions(swapFor).map((e) => (
           <Button key={e.id} title={e.name} onPress={() => swap(swapFor, e.id)} />
         )) : null}
-        {swapFor !== null && !substitutes(draft.items[swapFor].exerciseId, profile.setup, profile.avoid).length ? <T muted>No alternatives with your equipment.</T> : null}
+        {swapFor !== null && !swapOptions(swapFor).length ? <T muted>No alternatives with your equipment.</T> : null}
         <Button kind="ghost" title="Cancel" onPress={() => setSwapFor(null)} />
       </Sheet>
     </Screen>
   );
 }
 
-function RestPanel({ end, total, onAdjust, onDone, next, rir }: { end: number; total: number; onAdjust: (sec: number) => void; onDone: () => void; next: string | null; rir: number }) {
+function RestPanel({ end, total, onAdjust, onDone, next, rir, scale }: { end: number; total: number; onAdjust: (sec: number) => void; onDone: () => void; next: string | null; rir: number; scale: EffortScale }) {
   const [now, setNow] = useState(clock);
   useEffect(() => {
     const t = setInterval(() => setNow(clock()), 500);
@@ -684,6 +785,10 @@ function RestPanel({ end, total, onAdjust, onDone, next, rir }: { end: number; t
   }, []);
   const left = Math.max(0, Math.ceil((end - now) / 1000));
   const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  const done = left === 0;
+  useEffect(() => {
+    if (done) AccessibilityInfo.announceForAccessibility('Rest done. Start your next set.');
+  }, [done]);
   // Board 05 · 06 Rest timer: big countdown, progress, ±15 s, up next, skip.
   return (
     <Card style={{ gap: 12 }}>
@@ -691,11 +796,11 @@ function RestPanel({ end, total, onAdjust, onDone, next, rir }: { end: number; t
         <T size="micro">{left ? 'Rest' : 'Rest done'}</T>
         <Why e={REST_WHY} />
       </View>
-      <View style={{ alignItems: 'center', gap: 2 }} accessibilityLabel={`Rest: ${fmt(left)} left of ${fmt(total)}`}>
+      <View style={{ alignItems: 'center', gap: 2 }} accessible accessibilityRole="timer" accessibilityLabel={`Rest: ${fmt(left)} left of ${fmt(total)}`}>
         <T size="display" color={left ? C.text : C.accent} style={{ fontVariant: ['tabular-nums'] }}>{fmt(left)}</T>
         <T size="sm" muted>of {fmt(total)}</T>
       </View>
-      <ProgressBar value={total - left} max={total} />
+      <ProgressBar value={total - left} max={total} label="Rest elapsed" />
       <T size="sm" muted style={{ textAlign: 'center' }}>{total >= 120 ? 'Compound lifts do best with 2 to 3 minutes of rest.' : 'Isolation lifts need about 1 to 2 minutes.'}</T>
       {left ? (
         <View style={s.row}>
@@ -708,7 +813,7 @@ function RestPanel({ end, total, onAdjust, onDone, next, rir }: { end: number; t
           <T size="sm" muted>Up next</T>
           <View style={[s.row, { justifyContent: 'space-between' }]}>
             <T bold>{next}</T>
-            <T muted size="sm">Target {rir === 0 ? 'failure' : `${rir}${rir < 4 ? '–' + (rir + 1) : '+'} RIR`}</T>
+            <T muted size="sm">Target {scale === 'rpe' ? targetLabel(rir, 'rpe') : rir === 0 ? 'failure' : `${rir}${rir < 4 ? '–' + (rir + 1) : '+'} RIR`}</T>
           </View>
         </Card>
       ) : null}

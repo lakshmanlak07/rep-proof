@@ -17,3 +17,6 @@ export function safeLink(path: string): string {
   }
   return AUTH_PARAMS.test(path) ? '/' : path;
 }
+
+/** Route ids from links are untrusted: only a well-formed UUID is looked up. */
+export const isUuid = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);

@@ -279,6 +279,32 @@ test('home stats: week dots, streak, new bests', async () => {
   assert.deepEqual(bests.map((b) => [b.exerciseId, b.weight, b.previous]), [['bb_bench', 65, 62.5]]); // first squat session does not count
 });
 
+test('dates: a logged day (YYYY-MM-DD) shows as that calendar day in every time zone', async () => {
+  const { shortDate } = await import('../lib/stats.ts');
+  const day = new Date(2026, 9, 8).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  assert.equal(shortDate('2026-10-08'), day); // new Date('2026-10-08') would be UTC midnight: the 7th west of Greenwich
+  assert.equal(shortDate(new Date(2026, 9, 8, 18).toISOString()), day);
+});
+
+test('consistency ignores the weeks before the account existed', async () => {
+  const { adherence } = await import('../lib/stats.ts');
+  const now = new Date(2026, 9, 7, 12); // Wednesday 7 Oct 2026
+  const at = (y: number, m: number, d: number) => new Date(y, m, d, 18).toISOString();
+  // Joined Thursday 24 Sep, 3 planned a week: 1 in the partial first week, 3 last week, 1 so far this week.
+  const done = [at(2026, 8, 25), at(2026, 8, 28), at(2026, 8, 30), at(2026, 9, 2), at(2026, 9, 6)];
+  const a = adherence(done, 3, 8, now, at(2026, 8, 24));
+  assert.equal(a.pct, 100); // only last week is a full counted week; the partial first week and this week are not met yet
+  assert.equal(a.span, 3); // first week, last week, this week
+  assert.equal(a.activeWeeks, 3);
+  // Without a start date every one of the 8 weeks counts, as before: 4 of 21 over the 7 full weeks.
+  assert.equal(adherence(done, 3, 8, now).pct, 19);
+  assert.equal(adherence(done, 3, 8, now).span, 8);
+  // A brand-new account mid-way through its first week has no counted week yet (the screen shows no percentage).
+  const fresh = adherence([at(2026, 9, 6)], 3, 8, now, at(2026, 9, 5));
+  assert.equal(fresh.counted, 0);
+  assert.equal(fresh.span, 1);
+});
+
 test('plans record the engine version that built them', () => {
   assert.equal(buildProgram(base).version, 7);
 });
@@ -390,4 +416,97 @@ test('security: user-facing errors never echo server text', async () => {
   assert.equal(taken, wrong);
   assert.ok(!/already|registered|exists/i.test(taken));
   assert.match(friendlyAuthError({ message: 'Too many requests', status: 429 }), /Too many attempts/);
+});
+
+test('coverage "regions": every region of each muscle on every day it is trained; sets go to 1 before a region is dropped', () => {
+  const name = (id: string) => EXERCISE_BY_ID[id].name;
+  for (const setup of ['commercial', 'home'] as const) {
+    for (const sessionMinutes of [30, 45, 60, 90]) {
+      const p = buildProgram({ experience: 'intermediate', goal: 'muscle', setup, days: 4, sessionMinutes, unit: 'kg', avoid: [], coverage: 'regions' }, 'upper_lower');
+      assert.equal(p.coverage, 'regions');
+      const upper = p.days[0].exercises.map((e) => EXERCISE_BY_ID[e.exerciseId]);
+      const chest = upper.filter((e) => e.muscle === 'chest');
+      if (sessionMinutes >= 45) {
+        // upper chest (incline) and mid/lower chest both trained the same day
+        assert.ok(chest.some((e) => e.id.includes('incline')) && chest.some((e) => !e.id.includes('incline')), `${setup} ${sessionMinutes}: ${chest.map((e) => name(e.id))}`);
+        assert.ok(upper.some((e) => e.id.includes('overhead') && e.muscle === 'triceps'), `${setup} ${sessionMinutes}: no overhead triceps`);
+        for (const pat of ['lateral_raise', 'rear_delt', 'vertical_push']) assert.ok(upper.some((e) => e.pattern === pat), `${setup} ${sessionMinutes}: no ${pat}`);
+      }
+      // a region is only dropped once every set is already down to 1
+      const full = buildProgram({ experience: 'intermediate', goal: 'muscle', setup, days: 4, sessionMinutes: 999, unit: 'kg', avoid: [], coverage: 'regions' }, 'upper_lower');
+      p.days.forEach((d, i) => {
+        if (d.exercises.length < full.days[i].exercises.length) assert.ok(d.exercises.every((e) => e.sets === 1), `${setup} ${sessionMinutes} ${d.name}: region dropped before sets`);
+      });
+    }
+  }
+  // Default and older plans are unchanged: one main exercise per muscle.
+  const one = buildProgram({ experience: 'intermediate', goal: 'muscle', setup: 'commercial', days: 4, sessionMinutes: 45, unit: 'kg', avoid: [] }, 'upper_lower');
+  assert.equal(one.coverage, 'muscle');
+  assert.ok(one.days[0].exercises.length <= 8);
+  // Pull days keep their rear-delt-only shoulders.
+  const ppl = buildProgram({ experience: 'intermediate', goal: 'muscle', setup: 'commercial', days: 3, sessionMinutes: 90, unit: 'kg', avoid: [], coverage: 'regions' }, 'ppl');
+  assert.ok(ppl.days[1].exercises.map((e) => EXERCISE_BY_ID[e.exerciseId]).filter((e) => e.muscle === 'shoulders').every((e) => e.pattern === 'rear_delt'));
+});
+
+test('history rows newest-first (save_workout timestamps each set) still give sets in the order they were done', async () => {
+  const { sessionsFromRows } = await import('./session.ts');
+  const { suggest } = await import('./progression.ts');
+  // One session, 3 sets of 8 at 60 kg: 2, 2 in reserve, last set to failure. Newest first = last set first.
+  const rows = [
+    { workout_id: 'w2', weight: '60', reps: 8, rir: 0, set_index: 2 },
+    { workout_id: 'w2', weight: '60', reps: 8, rir: 2, set_index: 1 },
+    { workout_id: 'w2', weight: '60', reps: 8, rir: 2, set_index: 0 },
+    { workout_id: 'w1', weight: '57.5', reps: 8, rir: 0, set_index: 1 },
+    { workout_id: 'w1', weight: '57.5', reps: 8, rir: 2, set_index: 0 },
+  ];
+  const s = sessionsFromRows(rows, 6);
+  assert.deepEqual(s[0].map((x) => x.rir), [2, 2, 0]);
+  assert.equal(s[0][0].weight, 60);
+  assert.equal(s.length, 2);
+  assert.equal(sessionsFromRows(rows, 1).length, 1);
+  // The failure set is the planned last set: not an overshoot, so no "hold".
+  const plan = { exerciseId: 'bb_bench', sets: 3, repMin: 6, repMax: 10, rirTarget: 2, lastSetRir: 0 };
+  assert.notEqual(suggest(plan, s, 'intermediate', 'kg').kind, 'hold');
+});
+
+test('swap alternatives leave out exercises already in the workout', () => {
+  const all = substitutes('bb_bench', 'commercial', []);
+  assert.ok(all.some((e) => e.id === 'db_bench'));
+  const left = substitutes('bb_bench', 'commercial', [], ['bb_bench', 'db_bench']);
+  assert.ok(left.length > 0 && left.every((e) => e.id !== 'db_bench' && e.id !== 'bb_bench'));
+});
+
+test('week dots count calendar days, also in a daylight-saving fall-back week', async () => {
+  const tz = process.env.TZ;
+  process.env.TZ = 'America/New_York'; // DST ends Sun Nov 1 2026: that week is 169 hours long
+  try {
+    const { weekDots } = await import('../lib/stats.ts');
+    const now = new Date(2026, 10, 1, 23, 50); // Sun Nov 1, 23:50 local
+    const late = new Date(2026, 10, 1, 23, 30).toISOString(); // Sunday 23:30, inside the extra hour of the week
+    const monday = new Date(2026, 9, 26, 7, 0).toISOString();
+    assert.deepEqual(weekDots([late, monday], now), [true, false, false, false, false, false, true]);
+  } finally {
+    if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz;
+  }
+});
+
+test('a performance drop lands on the plate grid and holds below one step', async () => {
+  const { suggest } = await import('./progression.ts');
+  const plan = { exerciseId: 'bb_bench', sets: 2, repMin: 8, repMax: 12, rirTarget: 2 };
+  const low = (w: number) => [{ weight: w, reps: 5, rir: 0 }, { weight: w, reps: 5, rir: 0 }];
+  for (const w of [61, 57.3, 22.6, 100.1]) {
+    const s = suggest(plan, [low(w), low(w)], 'intermediate', 'kg');
+    assert.equal(s.kind, 'drop');
+    assert.equal(Math.round(s.weight! * 1000) % 2500, 0, `${w} -> ${s.weight}`);
+    assert.ok(s.weight! < w);
+  }
+  assert.equal(suggest(plan, [low(2.6), low(2.6)], 'intermediate', 'kg').kind, 'hold'); // never "lift 0.1 kg"
+});
+
+test('streak survives the week after a daylight-saving change', async () => {
+  const { streakWeeks } = await import('../lib/stats.ts');
+  // NY: DST ends Sun Nov 1 2026. Workouts in the two weeks before; "now" is Monday Nov 2 with none yet this week.
+  const done = [new Date(2026, 9, 21, 18).toISOString(), new Date(2026, 9, 28, 18).toISOString()];
+  const tzOffsetChanges = new Date(2026, 9, 26).getTimezoneOffset() !== new Date(2026, 10, 2).getTimezoneOffset();
+  assert.equal(streakWeeks(done, new Date(2026, 10, 2, 9)), 2, `host DST change: ${tzOffsetChanges}`);
 });

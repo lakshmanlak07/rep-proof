@@ -132,7 +132,7 @@ const STAPLES: Exercise[] = [
 /** Full library: staples plus the extended library (swaps, add exercise, library screen). */
 export const EXERCISES: Exercise[] = [...STAPLES, ...EXTRA_EXERCISES];
 
-export const EXERCISE_BY_ID: Record<string, Exercise> = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));
+export const EXERCISE_BY_ID: Record<string, Exercise> = Object.assign(Object.create(null), Object.fromEntries(EXERCISES.map((e) => [e.id, e])));
 
 // Movements a user can tick to avoid (onboarding + pain button).
 export const AVOIDABLE: { pattern: Pattern; label: string }[] = [
@@ -160,9 +160,10 @@ export function available(setup: Setup, avoid: Pattern[]): Exercise[] {
 
 // Swap candidates: same pattern + same muscle + user's equipment (PRD rule).
 // Falls back to same muscle when no other exercise shares the pattern.
-export function substitutes(exerciseId: string, setup: Setup, avoid: Pattern[]): Exercise[] {
+/** `taken`: exercises already in the workout, never offered (two items with one exercise would share every set). */
+export function substitutes(exerciseId: string, setup: Setup, avoid: Pattern[], taken: string[] = []): Exercise[] {
   const ex = EXERCISE_BY_ID[exerciseId];
-  const pool = available(setup, avoid).filter((e) => e.id !== exerciseId && e.muscle === ex.muscle);
+  const pool = available(setup, avoid).filter((e) => e.id !== exerciseId && e.muscle === ex.muscle && !taken.includes(e.id));
   const samePattern = pool.filter((e) => e.pattern === ex.pattern);
   return samePattern.length ? samePattern : pool;
 }

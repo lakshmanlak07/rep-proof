@@ -5,12 +5,14 @@ import { View } from 'react-native';
 
 import { useCaptcha, useCountdown } from '@/auth-ui';
 import { friendlyAuthError } from '@/lib/alert';
-import { cleanCode, emailRequestOutcome, isCode, MIN_PASSWORD, RESEND_SECONDS } from '@/lib/authFlow';
+import { cleanCode, emailRequestOutcome, isCode, MIN_PASSWORD, newPasswordProblem, RESEND_SECONDS } from '@/lib/authFlow';
 import { getPending } from '@/lib/pending';
 import { supabase } from '@/lib/supabase';
-import { Button, C, Choice, Field, Screen, T } from '@/ui';
+import { Button, C, Choice, ErrorText, Field, Screen, T } from '@/ui';
 
 type Method = 'email' | 'phone';
+/** Phone sign-in needs an SMS provider in Supabase; until EXPO_PUBLIC_PHONE_SIGNIN=on it is not offered. */
+const PHONE_SIGNIN = process.env.EXPO_PUBLIC_PHONE_SIGNIN === 'on';
 
 // International format: + country code + number, 8-15 digits (E.164).
 const normalizePhone = (raw: string) => {
@@ -50,10 +52,15 @@ export default function SignIn() {
   }
 
   async function submitEmail() {
+    // The rule shown under the field is enforced here too (the server's own minimum is a dashboard setting).
+    const problem = signUp ? newPasswordProblem(password, password) : null;
+    if (problem) return setError(problem);
     setBusy(true);
     setError('');
     const creds = { email: email.trim(), password, options: { captchaToken: captcha.token } };
-    const { data, error } = signUp ? await supabase.auth.signUp(creds) : await supabase.auth.signInWithPassword(creds);
+    // supabase-js normally returns errors, but a thrown one must not leave the button spinning forever.
+    const { data, error } = await (signUp ? supabase.auth.signUp(creds) : supabase.auth.signInWithPassword(creds))
+      .catch((e: { message?: string; status?: number }) => ({ data: { session: null }, error: { message: e?.message ?? 'Network request failed', status: e?.status ?? 0, code: undefined } }));
     captcha.reset(); // tokens are single-use
     setBusy(false);
     // Only someone who typed the right password gets this answer, so it reveals nothing to a stranger.
@@ -107,11 +114,11 @@ export default function SignIn() {
   if (confirming) {
     return (
       <Screen>
-        <T size="xl">Confirm your email</T>
+        <T size="xl" header>Confirm your email</T>
         {info ? <T muted>{info}</T> : null}
         <Field label="Code from the email" keyboardType="number-pad" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={10}
           value={code} onChangeText={(t) => setCode(cleanCode(t))} />
-        {error ? <T style={{ color: C.danger }}>{error}</T> : null}
+        {error ? <ErrorText>{error}</ErrorText> : null}
         <View style={{ flex: 1 }} />
         {captcha.view}
         <Button kind="primary" title="Confirm" loading={busy} disabled={!isCode(code)} onPress={confirmEmail} />
@@ -126,18 +133,18 @@ export default function SignIn() {
     <Screen>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="heart-outline" size={20} color="#fff" />
+          <Ionicons name="heart-outline" size={20} color={C.onAccent} />
         </View>
         <T size="lg" color={C.accent}>RepProof</T>
       </View>
       <View style={{ gap: 6 }}>
-        <T size="xl">{method === 'phone' ? 'Continue with your phone' : signUp ? 'Create your account' : 'Welcome back.'}</T>
+        <T size="xl" header>{method === 'phone' ? 'Continue with your phone' : signUp ? 'Create your account' : 'Welcome back.'}</T>
         <T muted>{signUp ? 'Your plan, logs and targets, saved to your account.' : 'Sign in to pick up where you left off.'}</T>
       </View>
-      <Choice value={method} onChange={(m) => { setMethod(m); setError(''); }} options={[
+      {PHONE_SIGNIN ? <Choice value={method} onChange={(m) => { setMethod(m); setError(''); }} options={[
         { value: 'email', label: 'Email and password' },
         { value: 'phone', label: 'Mobile number', hint: 'We text you a code' },
-      ]} />
+      ]} /> : null}
 
       {method === 'email' ? (<>
         <Field label="Email" autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={email} onChangeText={setEmail} />
@@ -153,7 +160,7 @@ export default function SignIn() {
         <Button kind="ghost" title="Use a different number" onPress={() => { setCodeSent(false); setCode(''); setError(''); }} />
       </>)}
 
-      {error ? <T style={{ color: C.danger }}>{error}</T> : null}
+      {error ? <ErrorText>{error}</ErrorText> : null}
       <View style={{ flex: 1 }} />
       {method === 'phone' && codeSent ? null : captcha.view}
 

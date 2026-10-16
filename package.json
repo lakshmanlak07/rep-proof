@@ -13,12 +13,15 @@
     "expo-camera": "~57.0.6",
     "expo-constants": "~57.0.20",
     "expo-device": "~57.0.2",
+    "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.4",
     "expo-image": "~57.0.5",
     "expo-linking": "~57.0.11",
+    "expo-notifications": "~57.0.22",
     "expo-router": "~57.0.24",
     "expo-secure-store": "~57.0.4",
+    "expo-sharing": "~57.0.22",
     "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
@@ -38,10 +41,14 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@testing-library/react-native": "^14.1.0",
+    "@types/jest": "29.5.14",
     "@types/node": "^24.19.0",
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
+    "jest": "~29.7.0",
+    "jest-expo": "~57.0.5",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -50,13 +57,33 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --test src/engine/engine.test.ts src/lib/security.test.ts src/lib/auth.test.ts src/lib/food.test.ts src/lib/beta.test.ts src/lib/workoutSave.test.ts",
+    "test": "node --test src/engine/engine.test.ts src/lib/security.test.ts src/lib/auth.test.ts src/lib/food.test.ts src/lib/beta.test.ts src/lib/workoutSave.test.ts src/lib/features.test.ts",
     "typecheck": "tsc --noEmit",
     "test:db": "node supabase/tests/run.mjs",
+    "test:db:safety": "node supabase/tests/rollback_safety.mjs",
+    "test:export": "node supabase/tests/export_integration.mjs",
+    "test:capacity": "node supabase/tests/capacity_local.mjs",
     "test:live": "node supabase/tests/live_probe.mjs",
     "scan:secrets": "node scripts/secret-scan.mjs",
+    "build:site": "node scripts/build-site.mjs",
     "test:live:auth": "node supabase/tests/live_auth.mjs",
-    "test:live:app": "node supabase/tests/live_app_smoke.mjs"
+    "test:live:app": "node supabase/tests/live_app_smoke.mjs",
+    "test:screens": "jest"
   },
-  "private": true
+  "private": true,
+  "jest": {
+    "preset": "jest-expo",
+    "testMatch": [
+      "<rootDir>/src/__tests__/**/*.test.tsx"
+    ],
+    "moduleNameMapper": {
+      "^@/(.*)$": "<rootDir>/src/$1"
+    },
+    "transformIgnorePatterns": [
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|standard-navigation)"
+    ],
+    "setupFiles": [
+      "<rootDir>/src/__tests__/setup.ts"
+    ]
+  }
 }

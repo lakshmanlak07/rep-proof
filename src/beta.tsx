@@ -40,16 +40,17 @@ export function WeeklySurvey({ userId, onDone }: { userId: string; onDone: () =>
   return (
     <Card>
       <T bold>Weekly check-in (3 questions)</T>
-      <T muted size="sm">1. How useful was RepProof this week?</T>
-      <View style={s.row}>
+      <T bold>1. How useful was RepProof this week?</T>
+      <View style={s.row} accessibilityRole="radiogroup">
         {[1, 2, 3, 4, 5].map((v) => (
-          <Pressable key={v} accessibilityRole="button" accessibilityLabel={`${v} out of 5`} accessibilityState={{ selected: useful === v }} onPress={() => setUseful(v)}
-            style={{ flex: 1, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: useful === v ? C.accent : C.border }}>
-            <T bold>{v}</T>
+          <Pressable key={v} accessibilityRole="radio" accessibilityLabel={`${v} out of 5`} accessibilityState={{ checked: useful === v }} onPress={() => setUseful(v)}
+            style={{ flex: 1, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
+              borderColor: useful === v ? C.accent : C.control, backgroundColor: useful === v ? C.accentSoft : C.card }}>
+            <T bold color={useful === v ? C.accent : C.text}>{v}</T>
           </Pressable>
         ))}
       </View>
-      <T muted size="sm">2. Did the plan fit your week?</T>
+      <T bold>2. Did the plan fit your week?</T>
       <Choice value={fit} onChange={setFit} options={[{ value: 'yes', label: 'Yes' }, { value: 'mostly', label: 'Mostly' }, { value: 'no', label: 'No' }]} />
       <Field label="3. One thing to improve (optional)" value={note} onChangeText={setNote} maxLength={2000} multiline />
       <Button kind="primary" title="Send" loading={busy} disabled={!useful || !fit} onPress={submit} />

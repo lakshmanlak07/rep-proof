@@ -14,6 +14,13 @@ export function saveCoachNotes(userId: string, decisions: Decision[], advice: Ex
   localStorage.setItem(key(userId), JSON.stringify({ at: new Date().toISOString(), decisions: merged, advice }));
 }
 
+/** After a workout is deleted, drop the decisions for its lifts; they are recomputed from history next session. */
+export function forgetCoachNotes(userId: string, exerciseIds: string[]) {
+  const notes = loadCoachNotes(userId);
+  if (!notes) return;
+  localStorage.setItem(key(userId), JSON.stringify({ ...notes, decisions: notes.decisions.filter((d) => !exerciseIds.includes(d.exerciseId)) }));
+}
+
 export function loadCoachNotes(userId: string): CoachNotes | null {
   try {
     return JSON.parse(localStorage.getItem(key(userId)) ?? 'null');

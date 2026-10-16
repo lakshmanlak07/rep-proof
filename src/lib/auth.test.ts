@@ -32,6 +32,9 @@ test('auth error messages: specific where safe, never raw', () => {
     [{ code: 'same_password', message: 'New password should be different from the old password.', status: 422 }, /not used/],
     [{ code: 'weak_password', message: 'Password should be at least 10 characters.', status: 422 }, /at least 10/],
     [{ code: 'over_request_rate_limit', message: 'Request rate limit reached', status: 429 }, /Too many attempts/],
+    [{ code: '', message: 'Network request failed', status: 0 }, /Could not reach RepProof/],
+    [{ code: '', message: 'Failed to fetch', status: 0 }, /Could not reach RepProof/],
+    [{ code: 'invalid_credentials', message: 'Invalid login credentials', status: 400 }, /Could not sign you in with those details/],
   ];
   for (const [e, want] of cases) {
     const shown = friendlyAuthError(e);
@@ -47,8 +50,12 @@ test('"email me a code" answers the same whether or not the account exists', () 
   assert.deepEqual(unknown, exists);
   assert.deepEqual(other, exists);
   assert.ok(exists.sent && !/exists|registered|found/i.test(exists.message));
+  // Email-send limits only apply to addresses that HAVE an account (an unknown one gets 200), so showing them
+  // would let anyone test whether an email is registered: they must read exactly like "sent".
+  assert.deepEqual(emailRequestOutcome({ code: 'over_email_send_rate_limit', message: 'For security purposes, you can only request this after 40 seconds.', status: 429 }), exists);
+  assert.deepEqual(emailRequestOutcome({ code: 'over_email_send_rate_limit', message: 'email rate limit exceeded', status: 429 }), exists);
   // Problems that say nothing about the account are shown, and nothing pretends to have been sent.
-  assert.equal(emailRequestOutcome({ code: 'over_email_send_rate_limit', message: 'only request this after 40 seconds', status: 429 }).sent, false);
+  assert.equal(emailRequestOutcome({ code: 'over_request_rate_limit', message: 'Request rate limit reached', status: 429 }).sent, false);
   assert.equal(emailRequestOutcome({ code: 'captcha_failed', message: 'captcha protection: request disallowed', status: 400 }).sent, false);
   assert.equal(emailRequestOutcome({ code: 'email_address_invalid', message: 'Email address is invalid', status: 400 }).sent, false);
   assert.equal(emailRequestOutcome({ name: 'AuthRetryableFetchError', message: 'Failed to fetch' }).sent, false);
@@ -129,4 +136,24 @@ test('sessions only come from the app\'s own API calls, and a reset ends every s
   assert.ok(reset);
   assert.match(reset.text, /signOut\(\{ scope: 'global' \}\)/);
   assert.match(reset.text, /recoveryClient\(\)/, 'recovery session stays out of device storage');
+});
+
+test('a deleted or revoked account signs the device out; a network failure never does', async () => {
+  const { sessionRejected } = await import('./authFlow.ts');
+  assert.equal(sessionRejected({ code: 'user_not_found', message: 'User from sub claim in JWT does not exist', status: 403 }), true);
+  assert.equal(sessionRejected({ code: 'session_not_found', status: 403 }), true);
+  assert.equal(sessionRejected({ code: 'user_banned', status: 403 }), true);
+  assert.equal(sessionRejected({ code: 'bad_jwt', status: 401 }), true);
+  assert.equal(sessionRejected({ name: 'AuthRetryableFetchError', message: 'Failed to fetch' }), false, 'offline');
+  assert.equal(sessionRejected({ message: 'Internal error', status: 500 }), false, 'server hiccup');
+  assert.equal(sessionRejected({ status: 502 }), false);
+  assert.equal(sessionRejected(null), false);
+  assert.equal(sessionRejected({ status: 403, message: 'Forbidden' }), false, 'bare 403 (gateway) is not a rejection');
+  assert.equal(sessionRejected({ status: 401 }), false, 'bare 401 is not a rejection');
+});
+
+test('BUG-5: workout links only look up well-formed ids', async () => {
+  const { isUuid } = await import('./links.ts');
+  assert.equal(isUuid('aaaaaaaa-0000-4000-8000-00000000000a'), true);
+  for (const bad of ['abc', '', undefined, null, 'aaaaaaaa-0000-4000-8000-00000000000a; drop', '../../etc', 42]) assert.equal(isUuid(bad), false, String(bad));
 });

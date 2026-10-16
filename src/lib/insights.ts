@@ -3,7 +3,7 @@
 import type Ionicons from '@expo/vector-icons/Ionicons';
 import type { Decision } from '@/engine/decisions.ts';
 import { EXERCISE_BY_ID } from '@/engine/exercises.ts';
-import type { CheckIn, EvidenceLabel, Experience, Muscle } from '@/engine/types.ts';
+import type { EvidenceLabel, Experience, Muscle } from '@/engine/types.ts';
 import type { Tone } from '@/ui';
 
 export type VolumeStatus = 'low' | 'productive' | 'high';
@@ -20,18 +20,8 @@ export function volumeStatus(sets: number, experience: Experience, stalling = fa
   return { status: 'productive', label: 'Current productive range', tone: 'pos' };
 }
 
-export type Readiness = { label: string; detail: string; tone: Tone; score: number | null };
-
-/** Readiness from the most recent check-ins (sleep, soreness, energy: 1-5, 5 best). */
-export function readiness(checkins: (CheckIn | null)[], deloadActive: boolean): Readiness {
-  if (deloadActive) return { label: 'Deload', detail: 'Lighter week in progress', tone: 'accent', score: null };
-  const c = checkins.find((x) => x);
-  if (!c) return { label: 'Ready', detail: 'Check in before your next session', tone: 'neutral', score: null };
-  const score = (c.sleep + c.soreness + c.energy) / 3;
-  if (score >= 3.7) return { label: 'Ready', detail: 'Recovering well', tone: 'pos', score };
-  if (score >= 2.7) return { label: 'Moderate', detail: 'Train as planned, stay honest on effort', tone: 'warn', score };
-  return { label: 'Run down', detail: 'Today may be adjusted for you', tone: 'danger', score };
-}
+// readiness() moved to stats.ts (pure, so it is unit-tested directly); re-exported for existing callers.
+export { readiness, type Readiness } from './stats';
 
 type Icon = keyof typeof Ionicons.glyphMap;
 const KIND_META: Record<Decision['kind'], { kicker: string; icon: Icon; tone: Tone }> = {

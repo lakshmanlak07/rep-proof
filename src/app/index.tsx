@@ -14,23 +14,23 @@ const POINTS = [
 export default function Welcome() {
   return (
     <Screen scroll={false}>
-      <View style={{ flex: 1, gap: 20 }}>
+      <View style={{ flexGrow: 1, gap: 20 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="heart-outline" size={20} color="#fff" />
+            <Ionicons name="heart-outline" size={20} color={C.onAccent} />
           </View>
           <T size="lg" color={C.accent}>RepProof</T>
         </View>
         <Reveal>
-          <Card variant="hero" style={{ height: 180, justifyContent: 'flex-end', overflow: 'hidden' }}>
+          <Card variant="hero" style={{ minHeight: 180, justifyContent: 'flex-end', overflow: 'hidden' }}>
             <View style={{ position: 'absolute', right: -40, top: -40, width: 170, height: 170, borderRadius: 85, backgroundColor: 'rgba(255,255,255,0.10)' }} />
             <View style={{ position: 'absolute', right: 30, top: 24, width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="barbell-outline" size={28} color="#fff" />
+              <Ionicons name="barbell-outline" size={28} color={C.onAccent} />
             </View>
-            <T size="lg" color="#fff">Progressive overload,{'\n'}explained.</T>
+            <T size="lg" color={C.onAccent}>Progressive overload,{'\n'}explained.</T>
           </Card>
         </Reveal>
-        <T size="xl">Lift with a plan you can check.</T>
+        <T size="xl" header>Lift with a plan you can check.</T>
         <View style={{ gap: 12 }}>
           {POINTS.map((p) => (
             <View key={p.text} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -42,6 +42,7 @@ export default function Welcome() {
       </View>
       <Button kind="primary" title="Get started" onPress={() => router.push('/age')} />
       <Button kind="ghost" title="I already have an account" onPress={() => router.push({ pathname: '/sign-in', params: { mode: 'signin' } })} />
+      <T size="sm" muted style={{ textAlign: 'center' }}>18+ only. <T size="sm" bold color={C.accent} onPress={() => router.push('/privacy')}>Privacy policy</T></T>
     </Screen>
   );
 }
