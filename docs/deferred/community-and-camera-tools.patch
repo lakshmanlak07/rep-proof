@@ -1,0 +1,1508 @@
+diff --git a/src/camera/CameraLab.tsx b/src/camera/CameraLab.tsx
+new file mode 100644
+index 0000000..1568dc8
+--- /dev/null
++++ b/src/camera/CameraLab.tsx
+@@ -0,0 +1,240 @@
++import 'expo-sqlite/localStorage/install';
++
++// Camera tools: technique check and bar-speed estimate. Optional, consent-based, never required to log or
++// finish a workout. Video is processed on the device (see poseHtml.ts); only derived numbers are shown, and a
++// bar-speed reading is attached to a set only when the user taps to attach it.
++import Ionicons from '@expo/vector-icons/Ionicons';
++import { Camera } from 'expo-camera';
++import { useRef, useState } from 'react';
++import { Linking, Platform, View } from 'react-native';
++
++import {
++  analyseForm, estimateSpeed, FORM_EXERCISES, KEYS, SPEED_EXERCISES, type FormExercise, type FormResult, type Frame, type Key, type Point,
++  type SpeedExercise, type SpeedResult,
++} from '@/engine/pose.ts';
++import { track } from '@/lib/data';
++import { Banner, Button, C, Card, Chip, Choice, Field, IconButton, s, Screen, Segmented, T } from '@/ui';
++import { Badge, Why } from '@/why';
++import { PoseCamera } from './PoseCamera';
++import type { PoseMsg } from './poseHtml';
++
++export type Mode = 'form' | 'speed';
++const CONSENT = 'camera_consent_v1';
++
++const ERRORS: Record<Extract<PoseMsg, { type: 'error' }>['code'], string> = {
++  camera_denied: 'Camera access is off for RepProof. Turn it on in your phone settings to use camera tools. Manual logging works as normal.',
++  camera_unavailable: 'No usable camera was found on this device. Manual logging works as normal.',
++  unsupported: 'This device or browser cannot run the camera tools. Manual logging works as normal.',
++  model_failed: 'The pose model could not load. It needs an internet connection the first time. Manual logging works as normal.',
++};
++
++function toFrame(m: Extract<PoseMsg, { type: 'frame' }>): Frame {
++  let lm: Record<Key, Point> | null = null;
++  if (m.lm && m.lm.length === KEYS.length * 3) {
++    lm = {} as Record<Key, Point>;
++    KEYS.forEach((k, i) => { lm![k] = { x: m.lm![i * 3], y: m.lm![i * 3 + 1], v: m.lm![i * 3 + 2] }; });
++  }
++  return { t: m.t, people: m.n, lm, luma: m.luma };
++}
++
++export function CameraLab({ mode: initialMode = 'form', formExercise, speedExercise, heightCm, onClose, onVelocity }: {
++  mode?: Mode; formExercise?: FormExercise; speedExercise?: SpeedExercise; heightCm: number;
++  onClose: () => void; onVelocity?: (mps: number) => void;
++}) {
++  const [consent, setConsent] = useState(() => localStorage.getItem(CONSENT) === 'yes');
++  const [agreed, setAgreed] = useState(false);
++  const [mode, setMode] = useState<Mode>(initialMode);
++  const [formEx, setFormEx] = useState<FormExercise>(formExercise ?? 'squat');
++  const [speedEx, setSpeedEx] = useState<SpeedExercise>(speedExercise ?? 'squat');
++  const [height, setHeight] = useState(String(heightCm || ''));
++  const [stage, setStage] = useState<'setup' | 'camera' | 'result'>('setup');
++  const [facing, setFacing] = useState<'environment' | 'user'>('environment');
++  const [status, setStatus] = useState<'loading' | 'ready' | 'recording'>('loading');
++  const [people, setPeople] = useState(0);
++  const [error, setError] = useState<string | null>(null);
++  const [form, setForm] = useState<FormResult | null>(null);
++  const [speed, setSpeed] = useState<SpeedResult | null>(null);
++  const [attached, setAttached] = useState(false);
++  const frames = useRef<Frame[]>([]);
++  const size = useRef({ w: 640, h: 480 });
++
++  async function openCamera() {
++    setError(null);
++    if (Platform.OS !== 'web') {
++      const p = await Camera.requestCameraPermissionsAsync().catch(() => null);
++      if (!p?.granted) { setError(ERRORS.camera_denied); return; }
++    }
++    frames.current = [];
++    setStatus('loading');
++    setStage('camera');
++    track('camera_tool_opened', { mode });
++  }
++
++  function onMessage(m: PoseMsg) {
++    if (m.type === 'ready') { size.current = { w: m.w || 640, h: m.h || 480 }; setStatus('ready'); }
++    if (m.type === 'preview') setPeople(m.people);
++    if (m.type === 'frame' && frames.current.length < 2700) frames.current.push(toFrame(m)); // 3 minutes at 15 fps
++    if (m.type === 'error') { setError(ERRORS[m.code]); setStage('setup'); track('camera_tool_error', { code: m.code }); }
++  }
++
++  function stop() {
++    const f = frames.current;
++    if (mode === 'form') { const r = analyseForm(f, formEx); setForm(r); setSpeed(null); track('form_check', { exercise: formEx, ok: r.ok, reason: r.ok ? null : r.reason }); }
++    else { const r = estimateSpeed(f, speedEx, Number(height), size.current); setSpeed(r); setForm(null); track('bar_speed', { exercise: speedEx, ok: r.ok, reason: r.ok ? null : r.reason }); }
++    setStatus('ready');
++    setStage('result');
++  }
++
++  // ── consent ──
++  if (!consent) {
++    return (
++      <Screen>
++        <View style={[s.row, { justifyContent: 'space-between' }]}>
++          <T size="xl" style={{ flex: 1 }}>Camera tools</T>
++          <IconButton icon="close" label="Close" onPress={onClose} />
++        </View>
++        <Card variant="tint">
++          <T bold>Before you start</T>
++          <T>• Video is processed on this phone, in memory. It is never recorded, saved or uploaded.</T>
++          <T>• The first time, the pose model (about 18 MB) downloads from Google and jsDelivr. They see a normal download request, not your video.</T>
++          <T>• Results are rough estimates with stated uncertainty. They are not validated against lab equipment.</T>
++          <T>• This is not medical, injury or diagnostic advice. It cannot tell you whether a lift is safe. If something hurts, stop and see a qualified professional.</T>
++          <T>• Optional: manual logging always works without it.</T>
++        </Card>
++        <Choice value={agreed ? ['yes'] : []} onChange={() => setAgreed(!agreed)} options={[{ value: 'yes', label: 'I understand and want to use the camera tools' }]} />
++        <Button kind="primary" title="Continue" disabled={!agreed} onPress={() => { localStorage.setItem(CONSENT, 'yes'); setConsent(true); track('camera_consent'); }} />
++        <Button kind="ghost" title="Not now" onPress={onClose} />
++      </Screen>
++    );
++  }
++
++  // ── camera ──
++  if (stage === 'camera') {
++    const recording = status === 'recording';
++    return (
++      <View style={{ flex: 1, backgroundColor: '#2A1620' }}>
++        <PoseCamera key={facing} facing={facing} recording={recording} onMessage={onMessage} />
++        <View style={{ position: 'absolute', top: 48, left: 16, right: 16, gap: 8 }}>
++          <View style={[s.row, { justifyContent: 'space-between' }]}>
++            <IconButton icon="close" label="Stop camera" onPress={() => setStage('setup')} />
++            <Chip tone={status === 'loading' ? 'neutral' : people === 1 ? 'pos' : 'warn'}
++              label={status === 'loading' ? 'Loading pose model…' : recording ? `Recording · ${people === 1 ? 'tracking you' : people > 1 ? 'more than one person' : 'no person seen'}`
++                : people === 1 ? 'Ready: one person in view' : people > 1 ? 'More than one person in view' : 'Step into view'} />
++            <IconButton icon="camera-reverse-outline" label="Switch camera" onPress={() => { setFacing(facing === 'user' ? 'environment' : 'user'); setStatus('loading'); }} />
++          </View>
++        </View>
++        <View style={{ position: 'absolute', bottom: 32, left: 16, right: 16, gap: 8 }}>
++          <View style={{ backgroundColor: 'rgba(42,22,32,0.7)', borderRadius: 16, padding: 12 }}>
++            <T size="sm" color="#fff">{mode === 'form' ? FORM_EXERCISES.find((e) => e.id === formEx)!.view : 'Side view, whole body in frame, phone steady (lean it on something).'}</T>
++          </View>
++          {recording ? <Button kind="light" title="Stop and analyse" icon="stop" onPress={stop} />
++            : <Button kind="light" title="Start recording the set" icon="radio-button-on" disabled={status !== 'ready'} onPress={() => { frames.current = []; setStatus('recording'); }} />}
++        </View>
++      </View>
++    );
++  }
++
++  // ── setup and results ──
++  return (
++    <Screen>
++      <View style={[s.row, { justifyContent: 'space-between' }]}>
++        <View style={{ flex: 1, gap: 2 }}>
++          <T size="micro">Optional</T>
++          <T size="xl">Camera tools</T>
++        </View>
++        <IconButton icon="close" label="Close" onPress={onClose} />
++      </View>
++      {error ? <Banner tone="danger" text={error} action={error === ERRORS.camera_denied && Platform.OS !== 'web' ? 'Settings' : undefined} onAction={() => Linking.openSettings()} /> : null}
++
++      {stage === 'result' && form ? <FormReport r={form} /> : null}
++      {stage === 'result' && speed ? (
++        <SpeedReport r={speed} attached={attached} onAttach={onVelocity && speed.ok ? () => { onVelocity(speed.mean); setAttached(true); track('bar_speed_attached'); } : undefined} />
++      ) : null}
++      {stage === 'result' ? <Button kind="primary" title="Try again" icon="refresh" onPress={() => { setAttached(false); openCamera(); }} /> : null}
++
++      {stage === 'setup' ? (<>
++        <Segmented value={mode} onChange={setMode} options={[{ value: 'form', label: 'Technique check' }, { value: 'speed', label: 'Bar speed' }]} />
++        {mode === 'form' ? (<>
++          <T muted>Describes your positions rep by rep, with how confident the estimate is. It never says a lift is safe or unsafe.</T>
++          <Choice value={formEx} onChange={setFormEx} options={FORM_EXERCISES.map((e) => ({ value: e.id, label: e.name, hint: e.view }))} />
++        </>) : (<>
++          <View style={[s.row, { justifyContent: 'space-between' }]}>
++            <T muted style={{ flex: 1 }}>Estimates how fast each rep moved on the way up, from your body position. Use it to compare sets, not as an exact number.</T>
++            <Why e={{ text: 'Bar speed slows as a set gets harder, and validated phone apps can measure it well. RepProof\'s estimate is simpler and not validated, so it always shows an uncertainty range and never changes your training by itself.', label: 'principle', refIds: ['monitoring_review', 'velocity_app', 'velocity_ai_app'] }} />
++          </View>
++          <Choice value={speedEx} onChange={setSpeedEx} options={SPEED_EXERCISES.map((e) => ({ value: e.id, label: e.name, hint: `Tracks your ${e.tracks}` }))} />
++          <Field label="Your height (cm), used to calibrate" keyboardType="number-pad" value={height} onChangeText={setHeight}
++            error={Number(height) >= 100 && Number(height) <= 250 ? undefined : 'Enter your height between 100 and 250 cm'} />
++        </>)}
++        <Button kind="primary" title="Open camera" icon="camera-outline" disabled={mode === 'speed' && !(Number(height) >= 100 && Number(height) <= 250)} onPress={openCamera} />
++      </>) : null}
++      <Button kind="ghost" title={stage === 'result' ? 'Done' : 'Cancel'} onPress={onClose} />
++    </Screen>
++  );
++}
++
++function FormReport({ r }: { r: FormResult }) {
++  if (!r.ok) {
++    return (
++      <Card>
++        <View style={s.row}><Ionicons name="alert-circle-outline" size={20} color={C.warn} /><T bold>No result this time</T></View>
++        <T>{r.text}</T>
++        <T muted size="sm">The check stops instead of guessing when it cannot see clearly.</T>
++      </Card>
++    );
++  }
++  return (<>
++    <Card variant="tint">
++      <View style={[s.row, { justifyContent: 'space-between' }]}>
++        <T size="micro">{FORM_EXERCISES.find((e) => e.id === r.exercise)!.name} · {r.reps} reps</T>
++        <Badge label="rule" />
++      </View>
++      <T muted size="sm">What the camera saw. Confidence is never rated high: this check is not validated.</T>
++    </Card>
++    {r.observations.map((o) => (
++      <Card key={o.title} flat>
++        <View style={[s.row, { justifyContent: 'space-between' }]}>
++          <T bold style={{ flex: 1 }}>{o.title}</T>
++          <Chip tone={o.confidence === 'moderate' ? 'principle' : 'warn'} label={`${o.confidence === 'moderate' ? 'Moderate' : 'Low'} confidence`} />
++        </View>
++        <T>{o.detail}</T>
++      </Card>
++    ))}
++    <Card flat>
++      <T size="micro">Limits</T>
++      {r.limits.map((l) => <T key={l} muted size="sm">• {l}</T>)}
++    </Card>
++  </>);
++}
++
++function SpeedReport({ r, onAttach, attached }: { r: SpeedResult; onAttach?: () => void; attached: boolean }) {
++  if (!r.ok) {
++    return (
++      <Card>
++        <View style={s.row}><Ionicons name="alert-circle-outline" size={20} color={C.warn} /><T bold>No estimate this time</T></View>
++        <T>{r.text}</T>
++      </Card>
++    );
++  }
++  return (<>
++    <Card variant="tint">
++      <T size="micro">Estimated lifting speed</T>
++      <T size="xl">~{r.mean} m/s <T muted size="sm">average of {r.reps.length} reps</T></T>
++      <T muted size="sm">Each value ±{r.uncertainty}% or more{r.loss !== null ? ` · slowed about ${r.loss}% from the fastest rep to the last` : ''}</T>
++    </Card>
++    <Card flat style={{ gap: 6 }}>
++      {r.reps.map((x) => (
++        <View key={x.rep} style={[s.row, { justifyContent: 'space-between' }]}>
++          <T>Rep {x.rep}</T>
++          <T bold>{x.mps} m/s <T muted size="sm">({x.low}–{x.high})</T></T>
++        </View>
++      ))}
++    </Card>
++    <Card flat>
++      <T size="micro">Limits</T>
++      {r.notes.map((n) => <T key={n} muted size="sm">• {n}</T>)}
++    </Card>
++    {onAttach ? (attached ? <Banner tone="accent" text="Attached to the set. It is stored as an estimate and does not change your plan." />
++      : <Button title={`Attach ~${r.mean} m/s to my last logged set`} onPress={onAttach} />) : null}
++  </>);
++}
+diff --git a/src/camera/PoseCamera.tsx b/src/camera/PoseCamera.tsx
+new file mode 100644
+index 0000000..8b1bc46
+--- /dev/null
++++ b/src/camera/PoseCamera.tsx
+@@ -0,0 +1,31 @@
++// Android/iOS: the pose page in a WebView. Camera permission is asked by the caller first (expo-camera).
++import { useEffect, useRef } from 'react';
++import { WebView } from 'react-native-webview';
++
++import { POSE_HTML, type PoseMsg } from './poseHtml';
++
++export function PoseCamera({ facing, recording, onMessage }: { facing: 'user' | 'environment'; recording: boolean; onMessage: (m: PoseMsg) => void }) {
++  const ref = useRef<WebView>(null);
++  const run = (js: string) => ref.current?.injectJavaScript(`${js};true;`);
++  useEffect(() => { run(`window.cmd && window.cmd('${recording ? 'record' : 'pause'}')`); }, [recording]);
++  useEffect(() => () => { run(`window.cmd && window.cmd('close')`); }, []);
++  return (
++    <WebView
++      ref={ref}
++      // https base URL: getUserMedia only works in a secure context.
++      source={{ html: POSE_HTML, baseUrl: 'https://localhost/' }}
++      originWhitelist={['*']}
++      javaScriptEnabled
++      mediaPlaybackRequiresUserAction={false}
++      allowsInlineMediaPlayback
++      mediaCapturePermissionGrantType="grant"
++      style={{ flex: 1, backgroundColor: '#2A1620' }}
++      onMessage={(e) => {
++        let m: PoseMsg;
++        try { m = JSON.parse(e.nativeEvent.data); } catch { return; }
++        if (m.type === 'loaded') run(`window.cmd('start', '${facing}')`);
++        onMessage(m);
++      }}
++    />
++  );
++}
+diff --git a/src/camera/PoseCamera.web.tsx b/src/camera/PoseCamera.web.tsx
+new file mode 100644
+index 0000000..9ba12dc
+--- /dev/null
++++ b/src/camera/PoseCamera.web.tsx
+@@ -0,0 +1,28 @@
++// Web: the pose page in an iframe (same-origin srcdoc, camera allowed). Messages come back via postMessage.
++import { useEffect, useRef } from 'react';
++
++import { POSE_HTML, type PoseMsg } from './poseHtml';
++
++type PoseWindow = Window & { cmd?: (c: string, arg?: string) => void };
++
++export function PoseCamera({ facing, recording, onMessage }: { facing: 'user' | 'environment'; recording: boolean; onMessage: (m: PoseMsg) => void }) {
++  const ref = useRef<HTMLIFrameElement>(null);
++  const handler = useRef(onMessage);
++  useEffect(() => { handler.current = onMessage; });
++  const cmd = (c: string, arg?: string) => (ref.current?.contentWindow as PoseWindow | null)?.cmd?.(c, arg);
++
++  useEffect(() => {
++    const listen = (e: MessageEvent) => {
++      if (e.source !== ref.current?.contentWindow || typeof e.data?.__pose !== 'string') return;
++      let m: PoseMsg;
++      try { m = JSON.parse(e.data.__pose); } catch { return; }
++      if (m.type === 'loaded') cmd('start', facing);
++      handler.current(m);
++    };
++    window.addEventListener('message', listen);
++    return () => { window.removeEventListener('message', listen); cmd('close'); };
++  }, [facing]);
++  useEffect(() => { cmd(recording ? 'record' : 'pause'); }, [recording]);
++
++  return <iframe ref={ref} srcDoc={POSE_HTML} allow="camera" title="Camera" style={{ border: 0, width: '100%', height: '100%', flex: 1, backgroundColor: '#2A1620' }} />;
++}
+diff --git a/src/camera/poseHtml.ts b/src/camera/poseHtml.ts
+new file mode 100644
+index 0000000..f4b3d66
+--- /dev/null
++++ b/src/camera/poseHtml.ts
+@@ -0,0 +1,88 @@
++// The page that runs the on-device pose model inside a WebView (Android/iOS) or an iframe (web).
++// Video never leaves this page: frames go to the model in memory and only landmark coordinates are posted to
++// the app. Nothing is recorded or uploaded. The model and its runtime are downloaded from Google's model
++// storage and jsDelivr on first use (about 18 MB; the browser caches them).
++export const MEDIAPIPE_VERSION = '1.1.0';
++const CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}`;
++const MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
++
++export type PoseMsg =
++  | { type: 'loaded' }
++  | { type: 'ready'; w: number; h: number }
++  | { type: 'preview'; people: number }
++  | { type: 'frame'; t: number; n: number; lm: number[] | null; luma?: number }
++  | { type: 'error'; code: 'unsupported' | 'camera_denied' | 'camera_unavailable' | 'model_failed'; detail?: string };
++
++export const POSE_HTML = `<!doctype html><html><head><meta charset="utf-8">
++<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
++<style>html,body{margin:0;height:100%;background:#2A1620;overflow:hidden}
++video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}</style></head>
++<body><video id="v" playsinline muted autoplay></video><canvas id="c"></canvas>
++<script type="module">
++const send = (m) => { const s = JSON.stringify(m); if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(s); else if (window.parent !== window) window.parent.postMessage({ __pose: s }, '*'); };
++const IDX = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
++const LINES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
++const video = document.getElementById('v'), canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
++const small = document.createElement('canvas'); small.width = 24; small.height = 24; const sctx = small.getContext('2d', { willReadFrequently: true });
++let lm = null, stream = null, recording = false, last = 0, lastPreview = 0, frames = 0, stopped = false;
++const r4 = (x) => Math.round(x * 10000) / 10000;
++function luma() {
++  sctx.drawImage(video, 0, 0, 24, 24);
++  const d = sctx.getImageData(0, 0, 24, 24).data; let s = 0;
++  for (let i = 0; i < d.length; i += 4) s += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
++  return Math.round(s / (d.length / 4));
++}
++function draw(people) {
++  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
++  ctx.clearRect(0, 0, canvas.width, canvas.height);
++  people.forEach((p, k) => {
++    ctx.strokeStyle = k ? '#F5B942' : '#F7E8EC'; ctx.fillStyle = k ? '#F5B942' : '#C2315F'; ctx.lineWidth = Math.max(3, canvas.width / 160);
++    for (const [a, b] of LINES) { if (p[a].visibility < 0.4 || p[b].visibility < 0.4) continue; ctx.beginPath(); ctx.moveTo(p[a].x * canvas.width, p[a].y * canvas.height); ctx.lineTo(p[b].x * canvas.width, p[b].y * canvas.height); ctx.stroke(); }
++    for (const i of IDX) { if (p[i].visibility < 0.4) continue; ctx.beginPath(); ctx.arc(p[i].x * canvas.width, p[i].y * canvas.height, ctx.lineWidth * 1.6, 0, 7); ctx.fill(); }
++  });
++}
++function loop() {
++  if (stopped) return;
++  requestAnimationFrame(loop);
++  const now = performance.now();
++  if (now - last < 66 || video.readyState < 2) return; // about 15 frames a second
++  last = now;
++  let r; try { r = lm.detectForVideo(video, now); } catch (e) { return; }
++  const people = r.landmarks || [];
++  draw(people);
++  if (!recording) { if (now - lastPreview > 700) { lastPreview = now; send({ type: 'preview', people: people.length }); } return; }
++  const p = people[0];
++  const m = { type: 'frame', t: Math.round(now), n: people.length, lm: p ? IDX.flatMap((i) => [r4(p[i].x), r4(p[i].y), Math.round((p[i].visibility ?? 0) * 100) / 100]) : null };
++  if (frames++ % 8 === 0) m.luma = luma();
++  send(m);
++}
++async function start(facing) {
++  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return send({ type: 'error', code: 'unsupported' });
++  try {
++    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
++  } catch (e) {
++    return send({ type: 'error', code: e && e.name === 'NotAllowedError' ? 'camera_denied' : 'camera_unavailable', detail: String(e && e.name) });
++  }
++  video.srcObject = stream;
++  try { await video.play(); } catch (e) {}
++  try {
++    const { FilesetResolver, PoseLandmarker } = await import('${CDN}/vision_bundle.mjs');
++    const files = await FilesetResolver.forVisionTasks('${CDN}/wasm');
++    lm = await PoseLandmarker.createFromOptions(files, {
++      baseOptions: { modelAssetPath: '${MODEL}', delegate: 'CPU' },
++      runningMode: 'VIDEO', numPoses: 2, minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
++    });
++  } catch (e) {
++    return send({ type: 'error', code: 'model_failed', detail: String(e && e.message).slice(0, 120) });
++  }
++  send({ type: 'ready', w: video.videoWidth, h: video.videoHeight });
++  loop();
++}
++window.cmd = (c, arg) => {
++  if (c === 'start') start(arg || 'environment');
++  if (c === 'record') { frames = 0; recording = true; }
++  if (c === 'pause') recording = false;
++  if (c === 'close') { stopped = true; recording = false; if (stream) stream.getTracks().forEach((t) => t.stop()); }
++};
++send({ type: 'loaded' });
++</script></body></html>`;
+diff --git a/src/app/camera.tsx b/src/app/camera.tsx
+new file mode 100644
+index 0000000..6598e7b
+--- /dev/null
++++ b/src/app/camera.tsx
+@@ -0,0 +1,12 @@
++import { useLocalSearchParams } from 'expo-router';
++
++import { CameraLab, type Mode } from '@/camera/CameraLab';
++import { useData } from '@/lib/data';
++import { leave } from '@/lib/nav';
++
++/** Camera tools from the Train tab (outside a workout, so nothing can be attached to a set). */
++export default function CameraScreen() {
++  const { mode } = useLocalSearchParams<{ mode?: Mode }>();
++  const { profile } = useData();
++  return <CameraLab mode={mode === 'speed' ? 'speed' : 'form'} heightCm={Number(profile?.height_cm) || 0} onClose={leave} />;
++}
+diff --git a/src/engine/pose.ts b/src/engine/pose.ts
+new file mode 100644
+index 0000000..84880ac
+--- /dev/null
++++ b/src/engine/pose.ts
+@@ -0,0 +1,310 @@
++// Camera tools: technique observations and bar-speed estimates from body landmarks.
++// Pure functions over landmark frames (no camera, no React): the camera screen feeds frames from an
++// on-device pose model and shows what these return. Everything here is a RepProof rule built on simple
++// geometry. It is NOT a validated method, so confidence is never reported as high, and the analysis
++// refuses to guess when the view is poor (dark, blocked, more than one person, unsupported movement).
++
++/** Landmarks sent by the camera page, in this order (MediaPipe pose indices 0, 11-16, 23-28). */
++export const KEYS = ['nose', 'ls', 'rs', 'le', 're', 'lw', 'rw', 'lh', 'rh', 'lk', 'rk', 'la', 'ra'] as const;
++export type Key = (typeof KEYS)[number];
++export type Point = { x: number; y: number; v: number }; // normalised 0-1 (y grows downward), v = visibility 0-1
++/** One video frame: time in ms, people detected, landmarks of the most prominent person, mean brightness 0-255. */
++export type Frame = { t: number; people: number; lm: Record<Key, Point> | null; luma?: number };
++
++export type FormExercise = 'squat' | 'hinge' | 'push_up';
++export type SpeedExercise = 'squat' | 'bench' | 'deadlift' | 'press';
++export type Confidence = 'low' | 'moderate'; // never "high": the method is not validated
++export type StopReason = 'too_short' | 'no_person' | 'multiple_people' | 'too_dark' | 'not_visible' | 'no_reps' | 'unsupported';
++
++export const FORM_EXERCISES: { id: FormExercise; name: string; view: string }[] = [
++  { id: 'squat', name: 'Squat (any bar or bodyweight)', view: 'Side view, whole body in frame, phone at hip height' },
++  { id: 'hinge', name: 'Hinge (deadlift, Romanian deadlift)', view: 'Side view, whole body in frame' },
++  { id: 'push_up', name: 'Push-up', view: 'Side view, head to feet in frame, phone at floor level' },
++];
++export const SPEED_EXERCISES: { id: SpeedExercise; name: string; tracks: string }[] = [
++  { id: 'squat', name: 'Squat', tracks: 'shoulders (the bar sits on them)' },
++  { id: 'bench', name: 'Bench press', tracks: 'wrists (the bar is in your hands)' },
++  { id: 'deadlift', name: 'Deadlift', tracks: 'wrists (the bar is in your hands)' },
++  { id: 'press', name: 'Overhead press', tracks: 'wrists (the bar is in your hands)' },
++];
++
++export const STOP_TEXT: Record<StopReason, string> = {
++  too_short: 'The recording was too short. Record the whole set, at least 2 reps.',
++  no_person: 'No person was detected in most of the video. Step back so your whole body is in frame.',
++  multiple_people: 'More than one person was in view. The check only works with one person in frame, so nothing was analysed.',
++  too_dark: 'The video was too dark to track joints reliably. Add light or move the phone, then try again.',
++  not_visible: 'Key joints were hidden or out of frame for much of the set. Film side-on with your whole body visible.',
++  no_reps: 'No clear reps were found. Film side-on and make sure each rep goes through its full movement.',
++  unsupported: 'This did not look like a movement the check supports. It only analyses the exercises listed.',
++};
++
++// ───────────── geometry ─────────────
++type P = { x: number; y: number };
++const dist = (a: P, b: P) => Math.hypot(a.x - b.x, a.y - b.y);
++/** Angle at b (degrees) formed by a-b-c. */
++export function angle(a: P, b: P, c: P): number {
++  const v1 = { x: a.x - b.x, y: a.y - b.y };
++  const v2 = { x: c.x - b.x, y: c.y - b.y };
++  const cos = (v1.x * v2.x + v1.y * v2.y) / ((Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y)) || 1);
++  return (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
++}
++/** Lean of the a->b segment from vertical, degrees (0 = upright, 90 = horizontal). */
++const fromVertical = (a: P, b: P) => (Math.atan2(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) * 180) / Math.PI;
++const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
++const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
++const sd = (xs: number[]) => { const m = mean(xs); return Math.sqrt(mean(xs.map((x) => (x - m) ** 2))); };
++const round = (x: number, d = 0) => Math.round(x * 10 ** d) / 10 ** d;
++
++/** The side of the body facing the camera: whichever has the more visible joints. */
++type Side = { s: Point; e: Point; w: Point; h: Point; k: Point; a: Point };
++function side(lm: Record<Key, Point>, pick: 'l' | 'r'): Side {
++  const g = (k: string) => lm[(pick + k) as Key];
++  return { s: g('s'), e: g('e'), w: g('w'), h: g('h'), k: g('k'), a: g('a') };
++}
++function pickSide(frames: Frame[]): 'l' | 'r' {
++  let l = 0, r = 0;
++  for (const f of frames) {
++    if (!f.lm) continue;
++    l += f.lm.ls.v + f.lm.lh.v + f.lm.lk.v + f.lm.la.v + f.lm.le.v + f.lm.lw.v;
++    r += f.lm.rs.v + f.lm.rh.v + f.lm.rk.v + f.lm.ra.v + f.lm.re.v + f.lm.rw.v;
++  }
++  return l >= r ? 'l' : 'r';
++}
++
++/** Moving average, window w (odd). */
++export function smooth(xs: number[], w = 5): number[] {
++  const h = Math.floor(w / 2);
++  return xs.map((_, i) => mean(xs.slice(Math.max(0, i - h), i + h + 1)));
++}
++
++/**
++ * Reps from a position signal where larger = lower in the image (y grows downward).
++ * A rep is top -> bottom -> top with a drop of at least `minDrop`. Returns frame indexes.
++ */
++export function segmentReps(y: number[], minDrop: number): { start: number; bottom: number; end: number }[] {
++  const reps: { start: number; bottom: number; end: number }[] = [];
++  let top = 0;
++  let bottom = -1;
++  for (let i = 1; i < y.length; i++) {
++    if (bottom < 0) {
++      if (y[i] < y[top]) top = i; // still finding the highest point before the descent
++      else if (y[i] - y[top] >= minDrop) bottom = i;
++    } else if (y[i] > y[bottom]) {
++      bottom = i; // still descending
++    } else if (y[bottom] - y[i] >= minDrop) {
++      // climbing back: the rep ends at the next local top
++      let end = i;
++      while (end + 1 < y.length && y[end + 1] <= y[end]) end++;
++      reps.push({ start: top, bottom, end });
++      top = end;
++      bottom = -1;
++      i = end;
++    }
++  }
++  return reps;
++}
++
++// ───────────── quality gates (shared) ─────────────
++export type Gate = { ok: true; frames: Frame[]; fps: number; visibility: number } | { ok: false; reason: StopReason };
++
++const REQUIRED: Record<FormExercise | SpeedExercise, ('s' | 'e' | 'w' | 'h' | 'k' | 'a')[]> = {
++  squat: ['s', 'h', 'k', 'a'], hinge: ['s', 'h', 'k', 'a'], push_up: ['s', 'e', 'w', 'h', 'a'],
++  bench: ['s', 'e', 'w', 'h'], deadlift: ['s', 'w', 'h', 'k'], press: ['s', 'e', 'w', 'h'],
++};
++
++export function gate(frames: Frame[], exercise: FormExercise | SpeedExercise): Gate {
++  if (frames.length < 20 || frames[frames.length - 1].t - frames[0].t < 2000) return { ok: false, reason: 'too_short' };
++  const multi = frames.filter((f) => f.people >= 2).length / frames.length;
++  if (multi > 0.15) return { ok: false, reason: 'multiple_people' };
++  const lit = frames.filter((f) => f.luma !== undefined).map((f) => f.luma!);
++  if (lit.length && median(lit) < 45) return { ok: false, reason: 'too_dark' };
++  const seen = frames.filter((f) => f.lm && f.people >= 1);
++  if (seen.length / frames.length < 0.6) return { ok: false, reason: 'no_person' };
++  const sd2 = pickSide(seen);
++  const vis = mean(seen.map((f) => mean(REQUIRED[exercise].map((k) => side(f.lm!, sd2)[k].v))));
++  if (vis < 0.5) return { ok: false, reason: 'not_visible' };
++  const fps = (seen.length - 1) / ((seen[seen.length - 1].t - seen[0].t) / 1000);
++  return { ok: true, frames: seen, fps, visibility: vis };
++}
++
++// ───────────── form check ─────────────
++export type Observation = { title: string; detail: string; confidence: Confidence };
++export type FormResult =
++  | { ok: false; reason: StopReason; text: string; detected?: FormExercise | null }
++  | { ok: true; exercise: FormExercise; reps: number; observations: Observation[]; limits: string[] };
++
++/** Which supported movement the landmarks look like, or null. */
++export function classify(frames: Frame[]): FormExercise | null {
++  const seen = frames.filter((f) => f.lm);
++  if (seen.length < 10) return null;
++  const sd2 = pickSide(seen);
++  const S = seen.map((f) => side(f.lm!, sd2));
++  const torso = median(S.map((p) => fromVertical(p.h, p.s)));
++  const knee = S.map((p) => angle(p.h, p.k, p.a));
++  const hip = S.map((p) => angle(p.s, p.h, p.k));
++  const elbow = S.map((p) => angle(p.s, p.e, p.w));
++  const range = (xs: number[]) => Math.max(...xs) - Math.min(...xs);
++  if (torso > 55 && range(elbow) > 45) return 'push_up';
++  if (range(knee) > 50) return 'squat';
++  if (range(hip) > 40 && range(knee) < 50) return 'hinge';
++  return null;
++}
++
++const conf = (vis: number, reps: number, sideOn: boolean): Confidence => (vis >= 0.75 && reps >= 3 && sideOn ? 'moderate' : 'low');
++
++export function analyseForm(frames: Frame[], exercise: FormExercise): FormResult {
++  const g = gate(frames, exercise);
++  if (!g.ok) return { ok: false, reason: g.reason, text: STOP_TEXT[g.reason] };
++  const detected = classify(g.frames);
++  if (detected !== exercise) {
++    const text = detected
++      ? `This looked more like a ${FORM_EXERCISES.find((e) => e.id === detected)!.name.toLowerCase()} than the exercise you chose. Choose the right one, or film side-on and try again.`
++      : STOP_TEXT.unsupported;
++    return { ok: false, reason: 'unsupported', text, detected };
++  }
++  const sd2 = pickSide(g.frames);
++  const S = g.frames.map((f) => side(f.lm!, sd2));
++  const T = g.frames.map((f) => f.t);
++  const torsoLen = median(S.map((p) => dist(p.s, p.h))) || 0.2;
++  // Side-on check: in a front view both shoulders are far apart horizontally.
++  const shoulderGap = median(g.frames.map((f) => Math.abs(f.lm!.ls.x - f.lm!.rs.x)));
++  const sideOn = shoulderGap < torsoLen * 0.45;
++  const signal = smooth(S.map((p) => (exercise === 'squat' ? p.h.y : p.s.y)));
++  const reps = segmentReps(signal, torsoLen * (exercise === 'push_up' ? 0.15 : 0.25));
++  if (!reps.length) return { ok: false, reason: 'no_reps', text: STOP_TEXT.no_reps };
++  const c = conf(g.visibility, reps.length, sideOn);
++  const obs: Observation[] = [];
++  const n = reps.length;
++
++  if (exercise === 'squat') {
++    const thigh = median(S.map((p) => dist(p.h, p.k))) || 0.2;
++    // Depth at the bottom: hip height relative to knee height, in thigh lengths (+ = hip below knee).
++    const depth = reps.map((r) => (S[r.bottom].h.y - S[r.bottom].k.y) / thigh);
++    const deep = depth.filter((d) => d >= -0.05).length;
++    obs.push({
++      title: 'Depth',
++      detail: deep === n ? `Your hips reached about knee height or lower on all ${n} reps.`
++        : deep === 0 ? `Your hips stayed above knee height on all ${n} reps. Depth is your choice; this is what the camera saw.`
++        : `Your hips reached about knee height or lower on ${deep} of ${n} reps.`,
++      confidence: c,
++    });
++    const lean = reps.map((r) => fromVertical(S[r.bottom].h, S[r.bottom].s));
++    obs.push({
++      title: 'Torso angle at the bottom',
++      detail: `About ${round(median(lean))}° from vertical. Lean depends on bar position, limb lengths and stance, so there is no single right number.`,
++      confidence: c,
++    });
++    if (n >= 3 && sd(depth) > 0.15) {
++      const worst = depth.indexOf(Math.min(...depth)) + 1;
++      obs.push({ title: 'Consistency', detail: `Depth varied between reps; rep ${worst} was the shallowest.`, confidence: c });
++    } else if (n >= 3) {
++      obs.push({ title: 'Consistency', detail: 'Depth looked similar from rep to rep.', confidence: c });
++    }
++  }
++
++  if (exercise === 'hinge') {
++    const lockout = reps.filter((r) => angle(S[r.end].s, S[r.end].h, S[r.end].k) >= 160).length;
++    obs.push({
++      title: 'Lockout',
++      detail: lockout === n ? `Your hips reached a standing position at the top of all ${n} reps.` : `Your hips reached a standing position at the top on ${lockout} of ${n} reps.`,
++      confidence: c,
++    });
++    const knee = reps.map((r) => 180 - angle(S[r.bottom].h, S[r.bottom].k, S[r.bottom].a));
++    obs.push({
++      title: 'Knee bend at the bottom',
++      detail: `About ${round(median(knee))}° of knee bend. Romanian deadlifts usually keep the knees softer than conventional deadlifts.`,
++      confidence: c,
++    });
++    const back = reps.map((r) => fromVertical(S[r.bottom].h, S[r.bottom].s));
++    obs.push({ title: 'Torso angle at the bottom', detail: `About ${round(median(back))}° from vertical.`, confidence: c });
++  }
++
++  if (exercise === 'push_up') {
++    const elbow = reps.map((r) => angle(S[r.bottom].s, S[r.bottom].e, S[r.bottom].w));
++    const deep = elbow.filter((a) => a <= 100).length;
++    obs.push({
++      title: 'Range of motion',
++      detail: deep === n ? `Your elbows bent to about 90° or more on all ${n} reps.` : `Your elbows bent to about 90° or more on ${deep} of ${n} reps.`,
++      confidence: c,
++    });
++    // Hip position against the shoulder-ankle line, in torso lengths (+ = hips below the line = sagging).
++    const sag = reps.map((r) => {
++      const p = S[r.bottom];
++      const k = (p.h.x - p.s.x) / ((p.a.x - p.s.x) || 1e-6);
++      return (p.h.y - (p.s.y + k * (p.a.y - p.s.y))) / torsoLen;
++    });
++    const off = sag.filter((x) => Math.abs(x) > 0.15).length;
++    obs.push({
++      title: 'Body line',
++      detail: off ? `Your hips were noticeably ${median(sag) > 0 ? 'below' : 'above'} the shoulder-to-ankle line on ${off} of ${n} reps.` : 'Your hips stayed roughly in line with your shoulders and ankles.',
++      confidence: c,
++    });
++  }
++
++  // Tempo, every exercise: lowering and lifting time per rep.
++  const down = reps.map((r) => (T[r.bottom] - T[r.start]) / 1000);
++  const up = reps.map((r) => (T[r.end] - T[r.bottom]) / 1000);
++  obs.push({ title: 'Tempo', detail: `About ${round(median(down), 1)} s down and ${round(median(up), 1)} s up per rep.`, confidence: c });
++
++  const limits = [
++    `Reps counted: ${n}. Check the count; a missed or extra rep means the observations are off too.`,
++    'Estimates from a single phone camera are rough. Camera angle, loose clothing and lighting change them.',
++    sideOn ? 'Filmed from the side, which suits these measurements.' : 'This did not look like a side view, so angles are less reliable.',
++    'This check describes positions. It cannot tell whether a lift is safe, whether you are injured, or what to do about pain.',
++  ];
++  return { ok: true, exercise, reps: n, observations: obs, limits };
++}
++
++// ───────────── bar speed ─────────────
++export type RepSpeed = { rep: number; mps: number; low: number; high: number };
++export type SpeedResult =
++  | { ok: false; reason: StopReason; text: string }
++  | { ok: true; reps: RepSpeed[]; mean: number; loss: number | null; uncertainty: number; notes: string[] };
++
++/** Shoulder-to-hip length as a share of standing height (adult segment proportions; varies by person). */
++const TORSO_SHARE = 0.288;
++const CALIBRATION_ERROR = 0.1; // person-to-person variation in that share
++const FLOOR_ERROR = 0.15; // never claim better than +/-15%: the method is not validated
++
++/**
++ * Mean concentric (lifting-phase) velocity per rep, in m/s, from the tracked body point.
++ * Scale comes from the lifter's height via torso length. Frame size (w, h in px) converts the
++ * normalised coordinates so x and y share one scale.
++ */
++export function estimateSpeed(frames: Frame[], exercise: SpeedExercise, heightCm: number, size: { w: number; h: number }): SpeedResult {
++  const g = gate(frames, exercise);
++  if (!g.ok) return { ok: false, reason: g.reason, text: STOP_TEXT[g.reason] };
++  if (!(heightCm >= 100 && heightCm <= 250)) return { ok: false, reason: 'unsupported', text: 'Set your height (100-250 cm) to calibrate the estimate.' };
++  const sd2 = pickSide(g.frames);
++  const S = g.frames.map((f) => side(f.lm!, sd2));
++  const T = g.frames.map((f) => f.t);
++  const px = (p: P) => ({ x: p.x * size.w, y: p.y * size.h });
++  const torsoPx = Math.max(...S.map((p) => dist(px(p.s), px(p.h)))); // longest = least foreshortened
++  const metresPerPx = (TORSO_SHARE * heightCm) / 100 / (torsoPx || 1);
++  const yPx = smooth(S.map((p) => px(exercise === 'squat' ? p.s : p.w).y), 3);
++  const reps = segmentReps(yPx, torsoPx * 0.2);
++  if (!reps.length) return { ok: false, reason: 'no_reps', text: STOP_TEXT.no_reps };
++
++  const jitter = sd(yPx.slice(0, 5)) || 1; // px noise while still at the start
++  const out: RepSpeed[] = reps.map((r, i) => {
++    const disp = (yPx[r.bottom] - yPx[r.end]) * metresPerPx; // lifting phase: bottom -> top
++    const secs = (T[r.end] - T[r.bottom]) / 1000;
++    const mps = secs > 0 ? disp / secs : 0;
++    const timing = (2 / g.fps) / (secs || 1);
++    const noise = jitter / Math.max(1, yPx[r.bottom] - yPx[r.end]);
++    const u = Math.max(FLOOR_ERROR, Math.sqrt(CALIBRATION_ERROR ** 2 + timing ** 2 + noise ** 2));
++    return { rep: i + 1, mps: round(mps, 2), low: round(mps * (1 - u), 2), high: round(mps * (1 + u), 2) };
++  }).filter((r) => r.mps > 0.05 && r.mps < 3);
++  if (!out.length) return { ok: false, reason: 'no_reps', text: STOP_TEXT.no_reps };
++  const u = Math.max(...out.map((r) => (r.high - r.mps) / (r.mps || 1)));
++  const loss = out.length >= 2 ? round((1 - out[out.length - 1].mps / Math.max(...out.map((r) => r.mps))) * 100) : null;
++  return {
++    ok: true, reps: out, mean: round(mean(out.map((r) => r.mps)), 2), loss, uncertainty: round(u * 100),
++    notes: [
++      `Tracks your ${SPEED_EXERCISES.find((e) => e.id === exercise)!.tracks}, not the bar itself.`,
++      `Calibrated from your height (${heightCm} cm). If that is off, every number is off by the same share.`,
++      `Each value could be about ${round(u * 100)}% higher or lower. Compare sets filmed the same way rather than reading single numbers.`,
++      'Not validated against a lab device. RepProof never changes your training from these readings unless you choose to.',
++    ],
++  };
++}
+diff --git a/src/engine/pose.test.ts b/src/engine/pose.test.ts
+new file mode 100644
+index 0000000..174dd4b
+--- /dev/null
++++ b/src/engine/pose.test.ts
+@@ -0,0 +1,135 @@
++// Camera tools: technique observations, quality gates and bar-speed estimates on synthetic landmark data.
++// Run with `npm test`. The synthetic lifter is a stick figure moved through known positions, so the expected
++// rep counts, depths and speeds are known exactly.
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++
++import { analyseForm, angle, classify, estimateSpeed, gate, KEYS, segmentReps, type Frame, type Key, type Point } from './pose.ts';
++
++const rad = (d: number) => (d * Math.PI) / 180;
++const FPS = 15;
++
++/** One side-on stick figure. p = 0 standing, 1 at the bottom of the rep. */
++function figure(kind: 'squat' | 'hinge' | 'push_up', p: number, vis = 0.9): Record<Key, Point> {
++  const pt = (x: number, y: number): Point => ({ x, y, v: vis });
++  if (kind === 'push_up') {
++    const drop = 0.08 * p;
++    const s = { x: 0.3, y: 0.6 + drop }, a = { x: 0.8, y: 0.75 };
++    const h = { x: 0.52, y: s.y + (a.y - s.y) * 0.44 };
++    const elbowBend = 170 - 90 * p; // elbow angle
++    const e = { x: 0.3 + 0.12 * Math.cos(rad(180 - elbowBend / 2)) * 0.2, y: s.y + 0.08 };
++    const w = { x: 0.3, y: 0.82 };
++    // Place the elbow so the shoulder-elbow-wrist angle follows elbowBend.
++    const upper = 0.12, half = rad(elbowBend / 2);
++    e.x = s.x - upper * Math.sin(Math.PI / 2 - half) * 0.6;
++    e.y = (s.y + w.y) / 2;
++    const lm = { s, e, w, h, k: { x: 0.66, y: 0.71 }, a };
++    return toLm(lm, pt);
++  }
++  const L = 0.2, T = 0.25;
++  const [as, at, ab] = kind === 'squat' ? [35 * p, 95 * p, 40 * p] : [8 * p, 12 * p, 75 * p];
++  const a = { x: 0.5, y: 0.9 };
++  const k = { x: a.x + L * Math.sin(rad(as)), y: a.y - L * Math.cos(rad(as)) };
++  const h = { x: k.x - L * Math.sin(rad(at)), y: k.y - L * Math.cos(rad(at)) };
++  const s = { x: h.x + T * Math.sin(rad(ab)), y: h.y - T * Math.cos(rad(ab)) };
++  return toLm({ s, e: { x: s.x + 0.02, y: s.y + 0.12 }, w: { x: s.x + 0.04, y: s.y + 0.22 }, h, k, a }, pt);
++}
++function toLm(p: Record<'s' | 'e' | 'w' | 'h' | 'k' | 'a', { x: number; y: number }>, pt: (x: number, y: number) => Point): Record<Key, Point> {
++  const out = {} as Record<Key, Point>;
++  for (const k of KEYS) {
++    if (k === 'nose') { out.nose = pt(p.s.x - 0.02, p.s.y - 0.1); continue; }
++    const base = p[k[1] as 's' | 'e' | 'w' | 'h' | 'k' | 'a'];
++    out[k] = pt(base.x + (k[0] === 'r' ? 0.005 : 0), base.y); // right side almost behind the left: side view
++  }
++  return out;
++}
++
++/** 1 s standing still, then `reps` reps of 2 s (1 s down, 1 s up). */
++function video(kind: 'squat' | 'hinge' | 'push_up', reps = 4, opts: { vis?: number; people?: (i: number) => number; luma?: number; depth?: (rep: number) => number } = {}): Frame[] {
++  const frames: Frame[] = [];
++  const total = FPS * (1 + reps * 2);
++  for (let i = 0; i < total; i++) {
++    const t = i / FPS;
++    const rep = Math.floor((t - 1) / 2);
++    const phase = t < 1 ? 0 : (1 - Math.cos(((t - 1) % 2) * Math.PI)) / 2;
++    const p = phase * (opts.depth ? opts.depth(rep) : 1);
++    frames.push({ t: Math.round(t * 1000), people: opts.people ? opts.people(i) : 1, lm: figure(kind, p, opts.vis), luma: opts.luma ?? 120 });
++  }
++  return frames;
++}
++
++test('angle and rep segmentation', () => {
++  assert.equal(Math.round(angle({ x: 0, y: 1 }, { x: 0, y: 0 }, { x: 1, y: 0 })), 90);
++  const y = [0, 0, 1, 2, 3, 2, 1, 0, 0, 1, 2, 3, 2, 1, 0];
++  assert.equal(segmentReps(y, 2).length, 2);
++  assert.equal(segmentReps([0, 0.1, 0, 0.1, 0], 2).length, 0, 'wobble is not a rep');
++});
++
++test('recognises the supported movements', () => {
++  assert.equal(classify(video('squat')), 'squat');
++  assert.equal(classify(video('hinge')), 'hinge');
++  assert.equal(classify(video('push_up')), 'push_up');
++});
++
++test('squat: counts reps and reports depth, tempo and limits with capped confidence', () => {
++  const r = analyseForm(video('squat', 4), 'squat');
++  assert.ok(r.ok, JSON.stringify(r));
++  assert.equal(r.reps, 4);
++  const depth = r.observations.find((o) => o.title === 'Depth')!;
++  assert.match(depth.detail, /all 4 reps/);
++  assert.ok(r.observations.every((o) => o.confidence === 'low' || o.confidence === 'moderate'), 'never high');
++  assert.match(r.observations.find((o) => o.title === 'Tempo')!.detail, /About 1(\.\d)? s down and 1(\.\d)? s up/);
++  assert.ok(r.limits.some((l) => /cannot tell whether a lift is safe/.test(l)));
++});
++
++test('squat: shallow reps are described without judging them', () => {
++  const r = analyseForm(video('squat', 4, { depth: () => 0.6 }), 'squat');
++  assert.ok(r.ok);
++  assert.match(r.observations.find((o) => o.title === 'Depth')!.detail, /above knee height on all 4 reps.*your choice/);
++});
++
++test('hinge and push-up observations', () => {
++  const h = analyseForm(video('hinge', 3), 'hinge');
++  assert.ok(h.ok, JSON.stringify(h));
++  assert.equal(h.reps, 3);
++  assert.match(h.observations.find((o) => o.title === 'Lockout')!.detail, /all 3 reps/);
++  const p = analyseForm(video('push_up', 3), 'push_up');
++  assert.ok(p.ok, JSON.stringify(p));
++  assert.equal(p.reps, 3);
++});
++
++test('stops instead of guessing: dark, hidden joints, two people, too short, wrong exercise', () => {
++  const dark = analyseForm(video('squat', 4, { luma: 20 }), 'squat');
++  assert.ok(!dark.ok && dark.reason === 'too_dark');
++  const hidden = analyseForm(video('squat', 4, { vis: 0.2 }), 'squat');
++  assert.ok(!hidden.ok && hidden.reason === 'not_visible');
++  const crowd = analyseForm(video('squat', 4, { people: (i) => (i % 3 === 0 ? 2 : 1) }), 'squat');
++  assert.ok(!crowd.ok && crowd.reason === 'multiple_people');
++  const short = analyseForm(video('squat', 4).slice(0, 15), 'squat');
++  assert.ok(!short.ok && short.reason === 'too_short');
++  const nobody = analyseForm(video('squat', 4).map((f, i) => (i % 2 ? { ...f, lm: null, people: 0 } : f)), 'squat');
++  assert.ok(!nobody.ok && nobody.reason === 'no_person');
++  const wrong = analyseForm(video('hinge', 3), 'squat');
++  assert.ok(!wrong.ok && wrong.reason === 'unsupported' && wrong.detected === 'hinge');
++  assert.ok(gate(video('squat'), 'squat').ok);
++});
++
++test('bar speed: close to the known speed, with an honest uncertainty range', () => {
++  const frames = video('squat', 3);
++  const size = { w: 1000, h: 1000 };
++  const r = estimateSpeed(frames, 'squat', 180, size);
++  assert.ok(r.ok, JSON.stringify(r));
++  assert.equal(r.reps.length, 3);
++  // Known: shoulder rises from the bottom to standing in 1 s; scale from torso length = 0.288 x height.
++  const top = figure('squat', 0).ls, bottom = figure('squat', 1).ls;
++  const mPerPx = (0.288 * 1.8) / (0.25 * 1000);
++  const expected = ((bottom.y - top.y) * 1000 * mPerPx) / 1;
++  for (const rep of r.reps) {
++    assert.ok(Math.abs(rep.mps - expected) / expected < 0.15, `rep ${rep.rep}: ${rep.mps} vs ${expected.toFixed(2)}`);
++    assert.ok(rep.low < rep.mps && rep.mps < rep.high, 'range brackets the estimate');
++  }
++  assert.ok(r.uncertainty >= 15, 'never claims better than +/-15%');
++  assert.ok(r.notes.some((n) => /Not validated/.test(n)));
++  const bad = estimateSpeed(frames, 'squat', 0, size);
++  assert.ok(!bad.ok, 'needs a height to calibrate');
++});
+diff --git a/src/lib/community.ts b/src/lib/community.ts
+new file mode 100644
+index 0000000..6f6f4d0
+--- /dev/null
++++ b/src/lib/community.ts
+@@ -0,0 +1,156 @@
++// Community data access. Every rule (who can see, post, like, follow, report or moderate) is enforced by
++// row-level security and triggers in migration 6; this file only shapes the queries.
++import { must, ok } from './data';
++import { supabase } from './supabase';
++import type { ReportReason } from './communityRules';
++
++export type MemberProfile = { user_id: string; handle: string; display_name: string; bio: string | null; show_stats: boolean; banned_until: string | null };
++export type Post = {
++  id: string; user_id: string; body: string; topic: string; status: 'visible' | 'held' | 'removed'; held_reason: string | null;
++  like_count: number; comment_count: number; created_at: string; edited_at: string | null;
++  author: { handle: string; display_name: string } | null;
++};
++export type Comment = { id: string; post_id: string; user_id: string; body: string; status: Post['status']; held_reason: string | null; created_at: string; author: { handle: string; display_name: string } | null };
++
++const POST = 'id, user_id, body, topic, status, held_reason, like_count, comment_count, created_at, edited_at, author:community_profiles(handle, display_name)';
++const COMMENT = 'id, post_id, user_id, body, status, held_reason, created_at, author:community_profiles(handle, display_name)';
++
++export const TOPICS = [
++  { value: 'general', label: 'General' }, { value: 'training', label: 'Training' }, { value: 'nutrition', label: 'Nutrition' },
++  { value: 'progress', label: 'Progress' }, { value: 'question', label: 'Question' },
++] as const;
++
++/** Distinguishes "migration 6 not applied yet" from other failures, so screens can say so plainly. */
++export const notReady = (e: unknown) => ['42P01', 'PGRST205', 'PGRST202'].includes((e as { code?: string })?.code ?? '');
++
++export async function myProfile(userId: string): Promise<MemberProfile | null> {
++  const { data, error } = await supabase.from('community_profiles').select('user_id, handle, display_name, bio, show_stats, banned_until').eq('user_id', userId).maybeSingle();
++  if (error) throw error;
++  return data as MemberProfile | null;
++}
++
++export async function saveProfile(userId: string, p: { handle: string; display_name: string; bio: string | null; show_stats: boolean }, exists: boolean) {
++  if (exists) ok(await supabase.from('community_profiles').update(p).eq('user_id', userId));
++  else ok(await supabase.from('community_profiles').insert(p));
++}
++
++/** Leaving deletes the community profile and, by cascade, every post, comment, like and follow. */
++export async function leaveCommunity(userId: string) {
++  ok(await supabase.from('community_profiles').delete().eq('user_id', userId));
++}
++
++export async function feed(opts: { following?: string[]; topic?: string; before?: string; author?: string } = {}): Promise<Post[]> {
++  let q = supabase.from('posts').select(POST).order('created_at', { ascending: false }).limit(30);
++  if (opts.author) q = q.eq('user_id', opts.author);
++  else q = q.eq('status', 'visible');
++  if (opts.following) q = q.in('user_id', opts.following.length ? opts.following : ['00000000-0000-0000-0000-000000000000']);
++  if (opts.topic && opts.topic !== 'all') q = q.eq('topic', opts.topic);
++  if (opts.before) q = q.lt('created_at', opts.before);
++  return must(await q) as unknown as Post[];
++}
++
++export async function myHeldPosts(userId: string): Promise<Post[]> {
++  return must(await supabase.from('posts').select(POST).eq('user_id', userId).neq('status', 'visible').order('created_at', { ascending: false }).limit(20)) as unknown as Post[];
++}
++
++export async function post(id: string): Promise<Post | null> {
++  const { data, error } = await supabase.from('posts').select(POST).eq('id', id).maybeSingle();
++  if (error) throw error;
++  return data as unknown as Post | null;
++}
++
++export async function comments(postId: string): Promise<Comment[]> {
++  return must(await supabase.from('comments').select(COMMENT).eq('post_id', postId).order('created_at').limit(200)) as unknown as Comment[];
++}
++
++export async function createPost(body: string, topic: string): Promise<Post> {
++  return must(await supabase.from('posts').insert({ body: body.trim(), topic }).select(POST).single()) as unknown as Post;
++}
++export async function editPost(id: string, body: string) { ok(await supabase.from('posts').update({ body: body.trim() }).eq('id', id)); }
++export async function deletePost(id: string) { ok(await supabase.from('posts').delete().eq('id', id)); }
++export async function addComment(postId: string, body: string) { ok(await supabase.from('comments').insert({ post_id: postId, body: body.trim() })); }
++export async function deleteComment(id: string) { ok(await supabase.from('comments').delete().eq('id', id)); }
++
++export async function myLikes(postIds: string[]): Promise<Set<string>> {
++  if (!postIds.length) return new Set();
++  const rows = must(await supabase.from('post_likes').select('post_id').in('post_id', postIds));
++  return new Set(rows.map((r) => r.post_id as string));
++}
++export async function like(postId: string, on: boolean) {
++  if (on) ok(await supabase.from('post_likes').insert({ post_id: postId }));
++  else ok(await supabase.from('post_likes').delete().eq('post_id', postId));
++}
++
++/** Members I follow and members who follow me (follow lists are private to the two people involved). */
++export async function follows(userId: string): Promise<{ following: string[]; followers: string[] }> {
++  const rows = must(await supabase.from('follows').select('follower_id, followee_id'));
++  return {
++    following: rows.filter((r) => r.follower_id === userId).map((r) => r.followee_id as string),
++    followers: rows.filter((r) => r.followee_id === userId).map((r) => r.follower_id as string),
++  };
++}
++export async function follow(memberId: string, on: boolean) {
++  if (on) ok(await supabase.from('follows').insert({ followee_id: memberId }));
++  else ok(await supabase.from('follows').delete().eq('followee_id', memberId));
++}
++
++export async function blocked(): Promise<{ blocked_id: string }[]> {
++  return must(await supabase.from('blocks').select('blocked_id')) as { blocked_id: string }[];
++}
++export async function block(memberId: string, on: boolean) {
++  if (on) ok(await supabase.from('blocks').insert({ blocked_id: memberId }));
++  else ok(await supabase.from('blocks').delete().eq('blocked_id', memberId));
++}
++
++export async function report(target: { post_id?: string; comment_id?: string; reported_user?: string }, reason: ReportReason, details: string) {
++  const { error } = await supabase.from('reports').insert({ ...target, reason, details: details.trim() || null });
++  if (error && error.code !== '23505') throw error; // already reported: fine
++}
++
++export async function member(userId: string): Promise<MemberProfile | null> {
++  const { data, error } = await supabase.from('community_profiles').select('user_id, handle, display_name, bio, show_stats, banned_until').eq('user_id', userId).maybeSingle();
++  if (error) throw error;
++  return data as MemberProfile | null;
++}
++
++export async function memberStats(userId: string): Promise<{ workouts_30d: number; last_workout: string | null } | null> {
++  const { data, error } = await supabase.rpc('community_stats', { p_user: userId });
++  if (error) throw error;
++  return (data as { workouts_30d: number; last_workout: string | null }[])[0] ?? null;
++}
++
++// ───────────── moderation (server checks the caller is a moderator) ─────────────
++export async function isModerator(): Promise<boolean> {
++  const { data, error } = await supabase.rpc('is_moderator');
++  if (error) return false;
++  return !!data;
++}
++
++export type QueueReport = {
++  id: string; reason: string; details: string | null; status: string; created_at: string;
++  post_id: string | null; comment_id: string | null; reported_user: string | null;
++  post: { body: string; status: string; user_id: string } | null;
++  comment: { body: string; status: string; user_id: string } | null;
++};
++
++export async function openReports(): Promise<QueueReport[]> {
++  return must(await supabase.from('reports')
++    .select('id, reason, details, status, created_at, post_id, comment_id, reported_user, post:posts(body, status, user_id), comment:comments(body, status, user_id)')
++    .eq('status', 'open').order('created_at').limit(100)) as unknown as QueueReport[];
++}
++export async function heldContent(): Promise<{ posts: Post[]; comments: Comment[] }> {
++  const [p, c] = await Promise.all([
++    supabase.from('posts').select(POST).eq('status', 'held').order('created_at').limit(100),
++    supabase.from('comments').select(COMMENT).eq('status', 'held').order('created_at').limit(100),
++  ]);
++  return { posts: must(p) as unknown as Post[], comments: must(c) as unknown as Comment[] };
++}
++export async function moderate(kind: 'post' | 'comment', id: string, status: Post['status'], note?: string) {
++  ok(await supabase.rpc('moderate', { p_kind: kind, p_id: id, p_status: status, p_note: note ?? null }));
++}
++export async function resolveReport(id: string, status: 'actioned' | 'dismissed') {
++  ok(await supabase.rpc('resolve_report', { p_report: id, p_status: status }));
++}
++export async function banMember(userId: string, days: number, removeContent: boolean, note?: string) {
++  ok(await supabase.rpc('ban_member', { p_user: userId, p_days: days, p_remove_content: removeContent, p_note: note ?? null }));
++}
+diff --git a/src/lib/communityRules.ts b/src/lib/communityRules.ts
+new file mode 100644
+index 0000000..20c569b
+--- /dev/null
++++ b/src/lib/communityRules.ts
+@@ -0,0 +1,38 @@
++// Community rules and the client-side copy of the server's content screen (migration 6, private.flag_reason).
++// The server is what enforces it; this copy only warns before posting. Pure; tested in security.test.ts.
++
++export const RULES: { title: string; body: string }[] = [
++  { title: 'Be respectful', body: 'No harassment, insults, threats, hate or body-shaming. Disagree with ideas, not people.' },
++  { title: 'No medical advice or misinformation', body: 'Do not diagnose, treat or advise on injuries, pain or medical conditions. Point people to a qualified professional.' },
++  { title: 'No unsafe training advice', body: 'No encouraging training through pain, extreme dieting, dehydration or dangerous stunts.' },
++  { title: 'No steroids or other performance-enhancing drugs', body: 'No promoting, sourcing or "cycle" advice for steroids, SARMs, peptides or similar drugs.' },
++  { title: 'No supplement or drug dosing', body: 'Talk about experiences, but do not tell others how much of any supplement or drug to take.' },
++  { title: 'Posts are opinions, not evidence', body: 'Share what worked for you, but do not present it as proof. RepProof never changes anyone\'s plan from a post.' },
++  { title: 'No spam or links', body: 'No ads, referral codes or links. Posts with links are held for review.' },
++];
++
++export const REPORT_REASONS = [
++  { value: 'harassment', label: 'Harassment or hate' },
++  { value: 'medical_misinformation', label: 'Medical misinformation' },
++  { value: 'unsafe_training', label: 'Unsafe training advice' },
++  { value: 'steroids', label: 'Steroid or drug promotion' },
++  { value: 'supplement_dosing', label: 'Supplement or drug dosing' },
++  { value: 'spam', label: 'Spam or advertising' },
++  { value: 'other', label: 'Something else' },
++] as const;
++export type ReportReason = (typeof REPORT_REASONS)[number]['value'];
++
++// Same patterns as the SQL (Postgres \m \M word boundaries become \b here).
++const LINK = /(https?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|org|io|co|shop|store|link)\b)/i;
++const PEDS = /\b(steroids?|anabolics?|trenbolone|tren|testosterone (cypionate|enanthate|propionate)|test (e|c|cyp|prop)|anavar|oxandrolone|dianabol|dbol|winstrol|stanozolol|deca|nandrolone|sarms?|ostarine|rad[- ]?140|lgd[- ]?4033|cardarine|clenbuterol|clen|hgh|peptides?|pct|blast and cruise|cruising)\b/i;
++const DOSE = /\b[0-9]+([.,][0-9]+)?\s?(mg|mcg|µg|ug|iu|ml|cc)\b/i;
++
++/** Why a post would be held for review, or null. */
++export function flagReason(body: string): string | null {
++  if (LINK.test(body)) return 'Contains a link';
++  if (PEDS.test(body)) return 'Mentions performance-enhancing drugs';
++  if (DOSE.test(body)) return 'Mentions a dose';
++  return null;
++}
++
++export const HANDLE = /^[a-z0-9_]{3,20}$/;
+diff --git a/supabase/migrations/20261009000000_rpe_crash_reports_community.sql b/supabase/migrations/20261009000000_rpe_crash_reports_community.sql
+new file mode 100644
+index 0000000..f57219b
+--- /dev/null
++++ b/supabase/migrations/20261009000000_rpe_crash_reports_community.sql
+@@ -0,0 +1,410 @@
++-- Migration 6: optional RPE and bar-speed estimates on sets, client crash reports, and the community
++-- (opt-in profiles, posts, comments, likes, follows, blocks, reports, moderation).
++-- Supabase: SQL Editor -> New query -> paste this file -> Run. Run after migrations 1-5.
++-- Then run supabase/tests/security_tests.sql to verify (it rolls everything back).
++
++-- ───────────── 1. Sets: optional RPE (1-10 in half steps) and a camera bar-speed estimate (m/s) ─────────────
++-- RIR stays the value the engine uses; RPE is what the lifter entered when they chose the RPE scale.
++alter table public.logged_sets
++  add column rpe numeric(3,1) constraint logged_sets_rpe_range check (rpe is null or (rpe between 1 and 10 and rpe * 2 = floor(rpe * 2))),
++  add column velocity numeric(4,2) constraint logged_sets_velocity_range check (velocity is null or (velocity > 0 and velocity <= 3));
++
++-- Same signature and behaviour as migration 4; also stores rpe and velocity when the app sends them.
++create or replace function public.save_workout(
++  p_client_id uuid, p_program_id uuid, p_day_index int, p_day_name text, p_checkin jsonb,
++  p_started_at timestamptz, p_perf_drops int, p_next_day int, p_sets jsonb
++) returns uuid
++language plpgsql security invoker set search_path = '' as $$
++declare
++  wid uuid;
++begin
++  if p_client_id is null then raise exception 'client id required' using errcode = '22023'; end if;
++  if p_sets is null or jsonb_typeof(p_sets) <> 'array' or jsonb_array_length(p_sets) > 100 then
++    raise exception 'invalid sets' using errcode = '22023';
++  end if;
++
++  select id into wid from public.workouts where user_id = auth.uid() and client_id = p_client_id;
++  if wid is not null then return wid; end if; -- retry of a save that already went through
++
++  begin
++    insert into public.workouts (client_id, program_id, day_index, day_name, checkin, started_at, perf_drops)
++      values (p_client_id, p_program_id, p_day_index, p_day_name, p_checkin, p_started_at, p_perf_drops)
++      returning id into wid;
++  exception when unique_violation then
++    select id into wid from public.workouts where user_id = auth.uid() and client_id = p_client_id;
++    return wid;
++  end;
++  insert into public.logged_sets (workout_id, exercise_id, set_index, weight, reps, rir, overridden, rpe, velocity)
++    select wid, s->>'exercise_id', (s->>'set_index')::int, (s->>'weight')::numeric, (s->>'reps')::int,
++           (s->>'rir')::int, coalesce((s->>'overridden')::boolean, false), (s->>'rpe')::numeric, (s->>'velocity')::numeric
++    from jsonb_array_elements(p_sets) as s;
++  update public.programs set next_day = p_next_day where id = p_program_id;
++  return wid;
++end;
++$$;
++revoke execute on function public.save_workout(uuid, uuid, int, text, jsonb, timestamptz, int, int, jsonb) from public, anon;
++grant execute on function public.save_workout(uuid, uuid, int, text, jsonb, timestamptz, int, int, jsonb) to authenticated;
++
++-- ───────────── 2. Client crash reports (insert-only; no passwords, tokens or health data) ─────────────
++-- The app scrubs messages before sending (src/lib/crash.ts); these caps bound whatever arrives.
++create table public.client_errors (
++  id bigint generated always as identity primary key,
++  user_id uuid not null references auth.users on delete cascade default auth.uid(),
++  message text not null check (char_length(message) <= 500),
++  stack text check (char_length(stack) <= 4000),
++  context jsonb check (context is null or octet_length(context::text) <= 1024),
++  created_at timestamptz not null default now()
++);
++alter table public.client_errors enable row level security;
++create policy insert_own on public.client_errors for insert with check (user_id = auth.uid());
++revoke all on public.client_errors from anon, authenticated;
++grant insert (message, stack, context) on public.client_errors to authenticated;
++create trigger rate_limit before insert on public.client_errors for each row execute function private.enforce_write_limit('50', '1 day');
++
++-- ───────────── 3. Community ─────────────
++-- Opt-in: nothing is public until a member creates a community profile. Reading needs a signed-in user.
++create table public.community_profiles (
++  user_id uuid primary key references auth.users on delete cascade default auth.uid(),
++  handle text not null unique check (handle ~ '^[a-z0-9_]{3,20}$'),
++  display_name text not null check (char_length(btrim(display_name)) between 1 and 40),
++  bio text check (char_length(bio) <= 160),
++  show_stats boolean not null default false, -- privacy: training stats hidden unless the member turns this on
++  accepted_rules_at timestamptz not null default now(),
++  banned_until timestamptz, -- moderators only
++  created_at timestamptz not null default now()
++);
++
++create table public.posts (
++  id uuid primary key default gen_random_uuid(),
++  user_id uuid not null references public.community_profiles (user_id) on delete cascade default auth.uid(),
++  body text not null check (char_length(btrim(body)) between 1 and 2000),
++  topic text not null default 'general' check (topic in ('general', 'training', 'nutrition', 'progress', 'question')),
++  status text not null default 'visible' check (status in ('visible', 'held', 'removed')),
++  held_reason text check (char_length(held_reason) <= 200),
++  like_count int not null default 0,
++  comment_count int not null default 0,
++  created_at timestamptz not null default now(),
++  edited_at timestamptz
++);
++create index posts_feed on public.posts (created_at desc) where status = 'visible';
++create index posts_author on public.posts (user_id, created_at desc);
++
++create table public.comments (
++  id uuid primary key default gen_random_uuid(),
++  post_id uuid not null references public.posts on delete cascade,
++  user_id uuid not null references public.community_profiles (user_id) on delete cascade default auth.uid(),
++  body text not null check (char_length(btrim(body)) between 1 and 1000),
++  status text not null default 'visible' check (status in ('visible', 'held', 'removed')),
++  held_reason text check (char_length(held_reason) <= 200),
++  created_at timestamptz not null default now()
++);
++create index comments_post on public.comments (post_id, created_at);
++
++create table public.post_likes (
++  post_id uuid not null references public.posts on delete cascade,
++  user_id uuid not null references public.community_profiles (user_id) on delete cascade default auth.uid(),
++  created_at timestamptz not null default now(),
++  primary key (post_id, user_id)
++);
++
++create table public.follows (
++  follower_id uuid not null references public.community_profiles (user_id) on delete cascade default auth.uid(),
++  followee_id uuid not null references public.community_profiles (user_id) on delete cascade,
++  created_at timestamptz not null default now(),
++  primary key (follower_id, followee_id),
++  check (follower_id <> followee_id)
++);
++
++create table public.blocks (
++  blocker_id uuid not null references auth.users on delete cascade default auth.uid(),
++  blocked_id uuid not null references auth.users on delete cascade,
++  created_at timestamptz not null default now(),
++  primary key (blocker_id, blocked_id),
++  check (blocker_id <> blocked_id)
++);
++
++create table public.reports (
++  id uuid primary key default gen_random_uuid(),
++  reporter_id uuid not null references auth.users on delete cascade default auth.uid(),
++  post_id uuid references public.posts on delete cascade,
++  comment_id uuid references public.comments on delete cascade,
++  reported_user uuid references public.community_profiles (user_id) on delete cascade,
++  reason text not null check (reason in ('harassment', 'medical_misinformation', 'unsafe_training', 'steroids', 'supplement_dosing', 'spam', 'other')),
++  details text check (char_length(details) <= 500),
++  status text not null default 'open' check (status in ('open', 'actioned', 'dismissed')),
++  created_at timestamptz not null default now(),
++  check (num_nonnulls(post_id, comment_id, reported_user) = 1)
++);
++-- One report per member per target: repeated reports cannot pile onto one post.
++create unique index reports_once on public.reports (reporter_id, coalesce(post_id, comment_id, reported_user));
++create index reports_open on public.reports (created_at) where status = 'open';
++
++-- Moderators are added by the project owner in the SQL Editor:
++--   insert into public.moderators (user_id) values ('<auth user id>');
++create table public.moderators (
++  user_id uuid primary key references auth.users on delete cascade,
++  added_at timestamptz not null default now()
++);
++
++create table public.moderation_actions (
++  id bigint generated always as identity primary key,
++  moderator_id uuid references auth.users on delete set null,
++  action text not null,
++  post_id uuid,
++  comment_id uuid,
++  target_user uuid,
++  report_id uuid,
++  note text check (char_length(note) <= 500),
++  created_at timestamptz not null default now()
++);
++
++-- ── helpers: each answers a question about the caller only ──
++create function public.is_moderator() returns boolean
++language sql stable security definer set search_path = '' as $$
++  select exists (select 1 from public.moderators where user_id = auth.uid());
++$$;
++
++-- True when either member has blocked the other (sees both directions; the caller can only read their own blocks).
++create function public.is_blocked_with(other uuid) returns boolean
++language sql stable security definer set search_path = '' as $$
++  select exists (select 1 from public.blocks
++    where (blocker_id = auth.uid() and blocked_id = other) or (blocker_id = other and blocked_id = auth.uid()));
++$$;
++
++-- The caller has a community profile and is not banned.
++create function public.can_participate() returns boolean
++language sql stable security definer set search_path = '' as $$
++  select exists (select 1 from public.community_profiles
++    where user_id = auth.uid() and (banned_until is null or banned_until < now()));
++$$;
++
++revoke execute on function public.is_moderator(), public.is_blocked_with(uuid), public.can_participate() from public, anon;
++grant execute on function public.is_moderator(), public.is_blocked_with(uuid), public.can_participate() to authenticated;
++
++-- ── content rules enforced on the server: links, drug and dosing talk are held for a moderator ──
++-- Community rules forbid steroid/PED promotion and supplement or drug dosing; a match is held, not deleted,
++-- so a false positive costs a short wait rather than a lost post.
++create function private.flag_reason(body text) returns text
++language sql immutable set search_path = '' as $$
++  select case
++    when body ~* '(https?://|www\.|\m[a-z0-9-]+\.(com|net|org|io|co|shop|store|link)\M)' then 'Contains a link'
++    when body ~* '\m(steroids?|anabolics?|trenbolone|tren|testosterone (cypionate|enanthate|propionate)|test (e|c|cyp|prop)|anavar|oxandrolone|dianabol|dbol|winstrol|stanozolol|deca|nandrolone|sarms?|ostarine|rad[- ]?140|lgd[- ]?4033|cardarine|clenbuterol|clen|hgh|peptides?|pct|blast and cruise|cruising)\M'
++      then 'Mentions performance-enhancing drugs'
++    when body ~* '\m[0-9]+([.,][0-9]+)?\s?(mg|mcg|µg|ug|iu|ml|cc)\M' then 'Mentions a dose'
++    else null
++  end;
++$$;
++revoke all on function private.flag_reason(text) from public, anon, authenticated;
++
++create function private.screen_content() returns trigger
++language plpgsql security definer set search_path = '' as $$
++declare r text := private.flag_reason(new.body);
++begin
++  -- Only ever escalates: an edit cannot release held or removed content.
++  if r is not null and new.status = 'visible' then
++    new.status := 'held';
++    new.held_reason := r;
++  end if;
++  if tg_op = 'UPDATE' then new.edited_at := now(); end if;
++  return new;
++end;
++$$;
++revoke all on function private.screen_content() from public, anon, authenticated;
++create trigger screen_content before insert or update of body on public.posts for each row execute function private.screen_content();
++create trigger screen_content before insert on public.comments for each row execute function private.screen_content();
++
++-- Counters kept by the server (members cannot write them).
++create function private.count_likes() returns trigger
++language plpgsql security definer set search_path = '' as $$
++begin
++  if tg_op = 'INSERT' then update public.posts set like_count = like_count + 1 where id = new.post_id;
++  else update public.posts set like_count = greatest(0, like_count - 1) where id = old.post_id; end if;
++  return null;
++end;
++$$;
++create function private.count_comments() returns trigger
++language plpgsql security definer set search_path = '' as $$
++begin
++  if tg_op = 'INSERT' then update public.posts set comment_count = comment_count + 1 where id = new.post_id;
++  else update public.posts set comment_count = greatest(0, comment_count - 1) where id = old.post_id; end if;
++  return null;
++end;
++$$;
++revoke all on function private.count_likes(), private.count_comments() from public, anon, authenticated;
++create trigger count_likes after insert or delete on public.post_likes for each row execute function private.count_likes();
++create trigger count_comments after insert or delete on public.comments for each row execute function private.count_comments();
++
++-- Blocking someone also ends any follow between the two members.
++create function private.block_cleanup() returns trigger
++language plpgsql security definer set search_path = '' as $$
++begin
++  delete from public.follows
++    where (follower_id = new.blocker_id and followee_id = new.blocked_id) or (follower_id = new.blocked_id and followee_id = new.blocker_id);
++  return null;
++end;
++$$;
++revoke all on function private.block_cleanup() from public, anon, authenticated;
++create trigger block_cleanup after insert on public.blocks for each row execute function private.block_cleanup();
++
++-- Three open reports from different members hold a post or comment until a moderator looks.
++create function private.hold_reported() returns trigger
++language plpgsql security definer set search_path = '' as $$
++begin
++  if new.post_id is not null and (select count(*) from public.reports where post_id = new.post_id and status = 'open') >= 3 then
++    update public.posts set status = 'held', held_reason = 'Reported by several members' where id = new.post_id and status = 'visible';
++  end if;
++  if new.comment_id is not null and (select count(*) from public.reports where comment_id = new.comment_id and status = 'open') >= 3 then
++    update public.comments set status = 'held', held_reason = 'Reported by several members' where id = new.comment_id and status = 'visible';
++  end if;
++  return null;
++end;
++$$;
++revoke all on function private.hold_reported() from public, anon, authenticated;
++create trigger hold_reported after insert on public.reports for each row execute function private.hold_reported();
++
++-- ── row-level security ──
++alter table public.community_profiles enable row level security;
++alter table public.posts enable row level security;
++alter table public.comments enable row level security;
++alter table public.post_likes enable row level security;
++alter table public.follows enable row level security;
++alter table public.blocks enable row level security;
++alter table public.reports enable row level security;
++alter table public.moderators enable row level security;
++alter table public.moderation_actions enable row level security;
++
++create policy read on public.community_profiles for select using (user_id = auth.uid() or not public.is_blocked_with(user_id));
++create policy own_insert on public.community_profiles for insert with check (user_id = auth.uid());
++create policy own_update on public.community_profiles for update using (user_id = auth.uid()) with check (user_id = auth.uid());
++create policy own_delete on public.community_profiles for delete using (user_id = auth.uid());
++
++create policy read on public.posts for select using (
++  user_id = auth.uid() or public.is_moderator() or (status = 'visible' and not public.is_blocked_with(user_id)));
++create policy own_insert on public.posts for insert with check (user_id = auth.uid() and public.can_participate());
++create policy own_update on public.posts for update using (user_id = auth.uid()) with check (user_id = auth.uid() and public.can_participate());
++create policy own_delete on public.posts for delete using (user_id = auth.uid());
++
++create policy read on public.comments for select using (
++  user_id = auth.uid() or public.is_moderator()
++  or (status = 'visible' and not public.is_blocked_with(user_id)
++      and exists (select 1 from public.posts p where p.id = post_id)));
++create policy own_insert on public.comments for insert with check (
++  user_id = auth.uid() and public.can_participate()
++  and exists (select 1 from public.posts p where p.id = post_id and p.status = 'visible' and not public.is_blocked_with(p.user_id)));
++create policy own_delete on public.comments for delete using (user_id = auth.uid());
++
++-- Likes are private: members see only their own (posts carry the count).
++create policy own on public.post_likes for select using (user_id = auth.uid());
++create policy own_insert on public.post_likes for insert with check (
++  user_id = auth.uid() and public.can_participate()
++  and exists (select 1 from public.posts p where p.id = post_id and p.status = 'visible' and not public.is_blocked_with(p.user_id)));
++create policy own_delete on public.post_likes for delete using (user_id = auth.uid());
++
++-- Follow lists are private to the two members involved.
++create policy mine on public.follows for select using (follower_id = auth.uid() or followee_id = auth.uid());
++create policy own_insert on public.follows for insert with check (
++  follower_id = auth.uid() and public.can_participate() and not public.is_blocked_with(followee_id));
++create policy own_delete on public.follows for delete using (follower_id = auth.uid());
++
++create policy own on public.blocks for select using (blocker_id = auth.uid());
++create policy own_insert on public.blocks for insert with check (blocker_id = auth.uid());
++create policy own_delete on public.blocks for delete using (blocker_id = auth.uid());
++
++create policy read on public.reports for select using (reporter_id = auth.uid() or public.is_moderator());
++create policy own_insert on public.reports for insert with check (reporter_id = auth.uid());
++
++create policy moderators_read on public.moderation_actions for select using (public.is_moderator());
++-- public.moderators: no policies, no grants. Only the SQL Editor (owner) manages moderators.
++
++-- ── grants: members write only the columns they own ──
++revoke all on public.community_profiles, public.posts, public.comments, public.post_likes, public.follows, public.blocks,
++  public.reports, public.moderators, public.moderation_actions from anon, authenticated;
++grant select, delete on public.community_profiles to authenticated;
++grant insert (handle, display_name, bio, show_stats), update (handle, display_name, bio, show_stats) on public.community_profiles to authenticated;
++grant select, delete on public.posts to authenticated;
++grant insert (body, topic), update (body) on public.posts to authenticated;
++grant select, delete on public.comments to authenticated;
++grant insert (post_id, body) on public.comments to authenticated;
++grant select, delete on public.post_likes to authenticated;
++grant insert (post_id) on public.post_likes to authenticated;
++grant select, delete on public.follows to authenticated;
++grant insert (followee_id) on public.follows to authenticated;
++grant select, delete on public.blocks to authenticated;
++grant insert (blocked_id) on public.blocks to authenticated;
++grant select on public.reports to authenticated;
++grant insert (post_id, comment_id, reported_user, reason, details) on public.reports to authenticated;
++grant select on public.moderation_actions to authenticated;
++
++-- ── abuse limits (same per-user counters as migration 4) ──
++create trigger rate_limit before insert on public.community_profiles for each row execute function private.enforce_write_limit('5', '1 day');
++create trigger rate_limit_update before update on public.community_profiles for each row execute function private.enforce_write_limit('30', '1 day');
++create trigger rate_limit before insert on public.posts for each row execute function private.enforce_write_limit('10', '1 day');
++-- Only edits count: like and comment counters also update posts.
++create trigger rate_limit_update before update of body on public.posts for each row execute function private.enforce_write_limit('30', '1 day');
++create trigger rate_limit before insert on public.comments for each row execute function private.enforce_write_limit('60', '1 day');
++create trigger rate_limit before insert on public.post_likes for each row execute function private.enforce_write_limit('300', '1 day');
++create trigger rate_limit before insert on public.follows for each row execute function private.enforce_write_limit('100', '1 day');
++create trigger rate_limit before insert on public.blocks for each row execute function private.enforce_write_limit('50', '1 day');
++create trigger rate_limit before insert on public.reports for each row execute function private.enforce_write_limit('30', '1 day');
++
++-- ── moderation (moderators only; every action is logged) ──
++create function public.moderate(p_kind text, p_id uuid, p_status text, p_note text default null) returns void
++language plpgsql security definer set search_path = '' as $$
++declare uid uuid := auth.uid();
++begin
++  if not public.is_moderator() then raise exception 'not a moderator' using errcode = '42501'; end if;
++  if p_status not in ('visible', 'held', 'removed') then raise exception 'invalid status' using errcode = '22023'; end if;
++  if p_kind = 'post' then
++    update public.posts set status = p_status, held_reason = case when p_status = 'visible' then null else coalesce(p_note, held_reason) end where id = p_id;
++    update public.reports set status = case when p_status = 'visible' then 'dismissed' else 'actioned' end where post_id = p_id and status = 'open';
++    insert into public.moderation_actions (moderator_id, action, post_id, note) values (uid, 'post_' || p_status, p_id, p_note);
++  elsif p_kind = 'comment' then
++    update public.comments set status = p_status, held_reason = case when p_status = 'visible' then null else coalesce(p_note, held_reason) end where id = p_id;
++    update public.reports set status = case when p_status = 'visible' then 'dismissed' else 'actioned' end where comment_id = p_id and status = 'open';
++    insert into public.moderation_actions (moderator_id, action, comment_id, note) values (uid, 'comment_' || p_status, p_id, p_note);
++  else
++    raise exception 'invalid kind' using errcode = '22023';
++  end if;
++end;
++$$;
++
++create function public.resolve_report(p_report uuid, p_status text) returns void
++language plpgsql security definer set search_path = '' as $$
++begin
++  if not public.is_moderator() then raise exception 'not a moderator' using errcode = '42501'; end if;
++  if p_status not in ('actioned', 'dismissed') then raise exception 'invalid status' using errcode = '22023'; end if;
++  update public.reports set status = p_status where id = p_report;
++  insert into public.moderation_actions (moderator_id, action, report_id) values (auth.uid(), 'report_' || p_status, p_report);
++end;
++$$;
++
++-- p_days = 0 lifts a ban. p_remove_content also removes everything the member posted.
++create function public.ban_member(p_user uuid, p_days int, p_remove_content boolean default false, p_note text default null) returns void
++language plpgsql security definer set search_path = '' as $$
++begin
++  if not public.is_moderator() then raise exception 'not a moderator' using errcode = '42501'; end if;
++  if p_days < 0 or p_days > 3650 then raise exception 'invalid ban length' using errcode = '22023'; end if;
++  update public.community_profiles set banned_until = case when p_days = 0 then null else now() + make_interval(days => p_days) end where user_id = p_user;
++  if p_remove_content then
++    update public.posts set status = 'removed', held_reason = 'Removed by a moderator' where user_id = p_user and status <> 'removed';
++    update public.comments set status = 'removed', held_reason = 'Removed by a moderator' where user_id = p_user and status <> 'removed';
++  end if;
++  insert into public.moderation_actions (moderator_id, action, target_user, note)
++    values (auth.uid(), case when p_days = 0 then 'unban' else 'ban_' || p_days || 'd' end, p_user, p_note);
++end;
++$$;
++revoke execute on function public.moderate(text, uuid, text, text), public.resolve_report(uuid, text), public.ban_member(uuid, int, boolean, text) from public, anon;
++grant execute on function public.moderate(text, uuid, text, text), public.resolve_report(uuid, text), public.ban_member(uuid, int, boolean, text) to authenticated;
++
++-- Training stats on a profile, only when that member opted in (show_stats) and neither has blocked the other.
++create function public.community_stats(p_user uuid) returns table (workouts_30d bigint, last_workout date)
++language sql stable security definer set search_path = '' as $$
++  select count(*), max(w.finished_at)::date
++  from public.workouts w
++  where w.user_id = p_user and w.finished_at > now() - interval '30 days'
++    and auth.uid() is not null
++    and exists (select 1 from public.community_profiles c where c.user_id = p_user and c.show_stats)
++    and not public.is_blocked_with(p_user);
++$$;
++revoke execute on function public.community_stats(uuid) from public, anon;
++grant execute on function public.community_stats(uuid) to authenticated;

@@ -44,3 +44,9 @@ example
 
 # Supabase CLI working files (project link, versions)
 supabase/.temp/
+
+# Database dumps contain personal data (docs/BACKUP_AND_RECOVERY.md)
+backups/
+
+# Local output of scripts/check-all.sh
+check-all.log

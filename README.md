@@ -11,7 +11,7 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 1. Supabase project → SQL Editor → run each file in `supabase/migrations/` in name order.
    The beta project has migrations 1-3; it still needs `20261006000000_abuse_limits_and_atomic_saves.sql`
    (rate limits, size caps, least-privilege grants, server-side workout saves). The app keeps working before it is applied (old save path).
-   Then run `supabase/tests/security_tests.sql` the same way: it should end with `ALL SECURITY TESTS PASSED` and keeps no data.
+   Then run `supabase/tests/security_tests.sql` the same way: it should end with `ALL SECURITY TESTS PASSED` and keeps no data. Prefer a Supabase branch or a restored copy. The script is verified to roll back on a disposable database (`npm run test:db:safety`), but it briefly writes and locks rows. If you run it on production, paste and run it as one execution, and do not edit out the final `rollback;`.
 2. Authentication → Sign In / Providers → Email: "Confirm email" is off for the closed beta only; turn it on (with custom SMTP)
    before public launch. All production settings: [PRODUCTION_SECURITY_CHECKLIST.md](PRODUCTION_SECURITY_CHECKLIST.md).
 3. Copy `.env.example` to `.env`; fill in Project URL and publishable key (Project Settings → API).
@@ -29,6 +29,9 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 
 - Android tester APK: `npx eas-cli@latest build --profile preview --platform android`
 - Store builds: `npx eas-cli@latest build --profile production --platform all`
+- Local Android release build (no Expo account): `npx expo prebuild --platform android`, then `android/gradlew -p android app:bundleRelease` (JDK 17+, e.g. Android Studio's `jbr`). The template signs release builds with the debug key: fine for emulators and testing, **not uploadable to Play**. Use EAS (managed upload key) or your own upload keystore for Play.
+- Brand assets: `python scripts/make-brand-assets.py` regenerates the icon, adaptive layers, splash, favicon, notification icon and Play graphics (`store/`) from the Design System mark.
+- Public privacy and deletion pages: `SUPPORT_EMAIL=… npm run build:site` (see `site/README.md`). Backups: [docs/BACKUP_AND_RECOVERY.md](docs/BACKUP_AND_RECOVERY.md).
 
 ## Before release
 
@@ -53,6 +56,9 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 | Feedback + weekly survey | `feedback` table (migration 3) | Insert-only; read in Table Editor |
 | Founding-member waitlist | `events` where `name = 'pro_waitlist_joined'` | PRD second success signal |
 | Bodyweight | `bodyweight_logs` (migration 3) | One entry per day; updates `profiles.bodyweight` |
+| RPE (optional) | `logged_sets.rpe` (migration 6) | 1-10 in half steps; the engine uses the converted reps in reserve. Older app versions keep working |
+| Crash reports | `client_errors` (migration 6) | Insert-only, scrubbed on the phone, 50/day per user, cleared after 90 days. Read in the SQL Editor |
+| Data export | Account › Your data | JSON of every own row + CSV of logged sets, through row-level security |
 
 ## Checks
 
@@ -60,7 +66,8 @@ Evidence-based gym training app. Expo (SDK 57, expo-router) + Supabase.
 | --- | --- |
 | `npm run typecheck`, `npm run lint` | Types and lint |
 | `npm test` | Engine rules and app-side security (errors, deep links, session storage, food requests, analytics) |
-| `npm run test:db` | All migrations + 77 database security checks on an in-memory Postgres, then 15 deliberately weakened controls that must be caught |
+| `npm run test:db` | All migrations + 106 database security checks on an in-memory Postgres (incl. re-running the newest migration), then 21 deliberately weakened controls that must be caught |
+| `npm run test:db:safety` | Proves the security test script leaves a database unchanged, both when it passes and when it fails partway (disposable Postgres) |
 | `npm run scan:secrets -- --history` | No secrets in tracked files or git history (add a bundle folder to scan a build) |
 | `npm run test:live` | Probes the real project as an outsider: no account, forged tokens, enumeration via sign-in/reset/resend, guessed codes, CAPTCHA state. Changes nothing (`-- --brute` adds a brute-force check that rate-limits this computer for a few minutes) |
 | `npm run test:live:auth` | With a throwaway account in `.env.local`: enumeration against a real account, refresh-token replay and reuse detection, sign-out revocation |

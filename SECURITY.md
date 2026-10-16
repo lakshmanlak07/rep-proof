@@ -40,7 +40,7 @@ are for usability only.
 
 ### How the tests prove something
 
-- `npm run test:db` runs every migration and `supabase/tests/security_tests.sql` (77 checks) on an in-memory
+- `npm run test:db` runs every migration and `supabase/tests/security_tests.sql` (106 checks, plus 21 mutation runs; `npm run test:db:safety` proves it rolls back) on an in-memory
   Postgres with a stand-in for Supabase's `auth` schema and default grants. It then removes 15 controls one at
   a time (row-level security, ownership check, column grants, anonymous grants, rate limits, size cap, duplicate
   guard, server time, food quota, ...) and fails unless the suite catches every one.
@@ -54,20 +54,48 @@ are for usability only.
 | --- | --- | --- | --- |
 | Email or phone number, password hash | Supabase Auth | User; project owner | Delete account |
 | Birth year, sex (optional), height, bodyweight, experience, goal, schedule, unit, movements to avoid | `profiles` | User; project owner | Delete account |
-| Programs, workouts, sets | `programs`, `workouts`, `logged_sets` | User; project owner | Delete account |
+| Programs, workouts, sets (weight, reps, RIR, optional RPE) | `programs`, `workouts`, `logged_sets` | User; project owner | Delete account |
 | **Health-related:** check-ins (sleep, soreness, energy) | `workouts.checkin`; on the phone in the unsaved workout until it is saved or the session ends | User; project owner | Delete account / sign-out (phone copy) |
 | **Health-related:** pain reports | Not stored or sent. If the user chooses "avoid this movement", only the movement pattern is added to `profiles.avoid` | User; project owner | Delete account |
 | Food, saved meals, cardio, bodyweight logs | own tables | User; project owner | Delete account |
 | Feedback and survey answers | `feedback` | Project owner only | Delete account |
 | Usage events (button-level actions; no free text, no health answers) | `events` | Project owner only | Delete account |
+| Crash reports (scrubbed message and stack, screen route, platform, app version; migration 6) | `client_errors` | Project owner only (insert-only for users, 50/day) | Delete account; anything older than 90 days is cleared when a new report arrives |
 | Food search text and barcodes | Open Food Facts (from the phone, and from the food function) and USDA (from the food function). Cached by query, not by user | Those services | Cache entries expire after 30 days |
 | Login session | iOS Keychain / Android Keystore | This app on this device | Sign-out / delete account |
 | Security check (when CAPTCHA is on) | Cloudflare Turnstile sees the device's IP address and browser signals during sign-in, sign-up and reset | Cloudflare | Cloudflare's retention |
 | Emails with codes (when custom SMTP is on) | Your email provider sends them | The provider | Provider's retention |
 | Coach notes (training decisions), survey and waitlist flags | Phone storage (SQLite), per user | Anyone with the unlocked phone | Uninstall |
 
-Nothing is sent to third-party analytics, crash reporting or advertising services. Logs: the food function
+Nothing is sent to third-party analytics, crash reporting or advertising services (crash reports go to the project's own database). Logs: the food function
 logs only an error type; the app logs errors only in development builds.
+
+## Dependency audit (2026-10-09)
+
+npm audit counts **packages**, not advisories: one advisory in a deep dependency marks every package above it.
+
+| Command (2026-10-09, after adding the screen-test tooling) | Packages flagged | Root advisories |
+| --- | --- | --- |
+| `npm audit --omit=dev --omit=optional` (what can reach the app or its build) | 31 (19 high, 12 moderate, 0 critical) | 4: braces, node-forge, decode-uri-component, uuid |
+| `npm audit --omit=dev` | 63 (46 high, 17 moderate, 0 critical) | 5: the four above plus sprintf-js |
+| `npm audit` (everything) | 68 (51 high, 17 moderate, 0 critical) | 5 |
+
+Why `--omit=dev` grew from 31 to 63: `react-native` declares `@react-native/jest-preset` as an *optional peer*. Once jest is installed for screen tests, npm marks that preset and the jest tree `devOptional`, and `--omit=dev` does not omit optional packages. The extra 32 are jest, babel-jest, istanbul and their dependents (they reach braces through micromatch, and sprintf-js through js-yaml 3). None of them is imported by the app: the exported Android bundle was searched and contains no sprintf-js or istanbul code. The 31-package count is the same four advisories as before.
+
+| Advisory | Package (path) | Ships in the app? | Patched release | Decision and residual risk |
+| --- | --- | --- | --- | --- |
+| [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) stack-exhaustion DoS (high) | `braces@3.0.3` ← micromatch ← @expo/metro-file-map ← @expo/cli | No: Metro file watching at build time; its inputs are the project's own glob patterns | **None**: 3.0.3 is the latest release and is affected | Accept; re-check on every Expo update. Worst case is a crashed dev server or build, not a compromised app |
+| [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv) RSA signature verification (high) | `node-forge@1.4.0` ← @expo/cli, @expo/code-signing-certificates | No: CLI and expo-updates code signing, which RepProof does not use (no expo-updates) | **None**: 1.4.0 is the latest and is affected | Accept while expo-updates is unused; reassess before adding OTA updates |
+| [GHSA-vcc3-ghjq-m6fr](https://github.com/advisories/GHSA-vcc3-ghjq-m6fr) exponential decoding DoS (moderate) | `decode-uri-component@0.2.2` ← query-string@7 ← expo-router | **Yes** (URL parsing) | 0.5.0, but it is ESM-only while query-string@7 `require()`s it. Reproduced 2026-10-09: `require()` returns `{__esModule, default}` and query-string's call throws `TypeError: … is not a function`, so an override would break routing | Mitigated: `src/lib/links.ts` `safeLink` sends malformed or oversized incoming links home before expo-router parses them (tested in `auth.test.ts`). In-app links are generated by the app |
+| [GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq) buffer bounds (moderate) | `uuid@7.0.3` ← xcode ← @expo/config-plugins | No: iOS project generation during prebuild; only the `buf` argument form is affected | uuid 11.1.1+ | Accept: build-time and iOS-only. Forcing a major uuid version into `xcode` is untested |
+| [GHSA-hp3w-g68c-fv3c](https://github.com/advisories/GHSA-hp3w-g68c-fv3c) format-string DoS (moderate) | `sprintf-js@1.0.3` ← argparse@1 ← js-yaml@3 ← @istanbuljs/load-nyc-config ← babel-plugin-istanbul ← babel-jest | No: screen-test coverage tooling only; its input is the repo's own config | **None**: 1.1.3 is the latest and is in range. npm's suggested fix is jest 30, a major upgrade not supported by jest-expo 57 | Accept: test-time only, no untrusted input |
+
+Remediation path for decode-uri-component: expo-router 58 no longer uses query-string, but on 2026-10-09 Expo SDK 58 was still the `next` tag (`latest` is 57.0.27), and the newest SDK 57 router (57.0.25) still depends on query-string ^7.1.3. Upgrade with SDK 58, not by overriding.
+
+A compromised build tool can still affect the shipped app. The controls that limit that risk:
+- The lockfile is committed and CI runs `npm ci`.
+- CI actions are pinned to commit SHAs.
+- CI gates on critical advisories.
 
 ## Known remaining risks
 
