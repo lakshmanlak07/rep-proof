@@ -2,6 +2,8 @@
 
 ## Repository state
 
+> **Superseded (2026-10-16):** all of this work is now committed on `ui-refresh` (`9016d25`, `a8e8ed3`, `92f2650`) and pushed to `origin/ui-refresh`. The snapshot below records the state on 2026-10-09.
+
 - **Branch:** `ui-refresh`, 2 commits ahead of `origin/main` (`d12c45d`, `0a7a093`). Nothing new was committed, pushed or deployed.
 - **Working tree** (final verification snapshot): 5 staged deletions, 44 modified (unstaged), 45 untracked. All uncommitted.
   - Some deletions are **staged** (they were made with `git rm`): `src/app/settings.tsx`, `assets/expo.icon/*`, `assets/images/expo-logo.png`.
